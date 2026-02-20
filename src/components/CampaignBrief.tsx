@@ -27,7 +27,8 @@ export default function CampaignBrief({ onGenerate, isGenerating }: CampaignBrie
   const [selectedRatio, setSelectedRatio] = useState("9:16 Vertical");
 
   const handleGenerate = () => {
-    onGenerate(brief || EXAMPLE_BRIEF);
+    const fullBrief = `${brief || EXAMPLE_BRIEF}\n\nPreferred Format: ${selectedFormat}\nPreferred Tone: ${selectedTone}\nAspect Ratio: ${selectedRatio}`;
+    onGenerate(fullBrief);
   };
 
   return (
