@@ -18,7 +18,7 @@ const INITIAL_STEPS: Step[] = [
 ];
 
 // Simulated durations for steps 3-5 (after AI completes steps 1-2)
-const REMAINING_STEP_DURATIONS = [4500, 3800, 2500];
+const REMAINING_STEP_DURATIONS = [3500, 2500, 2000];
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
