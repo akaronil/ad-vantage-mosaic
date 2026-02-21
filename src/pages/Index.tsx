@@ -5,6 +5,8 @@ import VideoPreview from "@/components/VideoPreview";
 import ProgressStepper, { Step } from "@/components/ProgressStepper";
 import ExtractedInfoTags, { ExtractedInfo } from "@/components/ExtractedInfoTags";
 import ScriptCard, { AdScript } from "@/components/ScriptCard";
+import VisualsPanel from "@/components/VisualsPanel";
+import AudioPanel from "@/components/AudioPanel";
 import { Zap, History, Settings, Bell } from "lucide-react";
 
 const INITIAL_STEPS: Step[] = [
@@ -241,6 +243,16 @@ export default function Index() {
             <div className="animate-fade-in-up">
               <ScriptCard script={adScript} />
             </div>
+          )}
+
+          {/* Visuals Panel — show after visuals step starts (step 3+) */}
+          {adScript && (activeStep >= 3 || isComplete) && (
+            <VisualsPanel script={adScript} />
+          )}
+
+          {/* Audio Panel — show after audio step starts (step 4+) */}
+          {adScript && (activeStep >= 4 || isComplete) && (
+            <AudioPanel />
           )}
         </section>
       </main>
