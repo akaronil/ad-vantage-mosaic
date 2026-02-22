@@ -1,5 +1,6 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 import CampaignBrief from "@/components/CampaignBrief";
 import VideoPreview from "@/components/VideoPreview";
 import ProgressStepper, { Step } from "@/components/ProgressStepper";
@@ -17,8 +18,9 @@ const INITIAL_STEPS: Step[] = [
   { id: 5, label: "Final Export", description: "Render, encode & optimize for platform", status: "pending" },
 ];
 
-// Simulated durations for steps 3-5 (after AI completes steps 1-2)
-const REMAINING_STEP_DURATIONS = [3500, 2500, 2000];
+// Steps that are driven by polling: visuals -> audio -> export
+const POLL_STEPS = ["visuals", "audio", "export"] as const;
+const POLL_INTERVAL_MS = 1500;
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
@@ -29,7 +31,8 @@ export default function Index() {
   const [activeStep, setActiveStep] = useState(0);
   const [extractedInfo, setExtractedInfo] = useState<ExtractedInfo | null>(null);
   const [adScript, setAdScript] = useState<AdScript | null>(null);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const pollingRef = useRef(false);
 
   const setStepStatus = (stepIndex: number, status: Step["status"]) => {
     setSteps((prev) =>
@@ -39,31 +42,58 @@ export default function Index() {
     );
   };
 
-  const simulateRemainingSteps = (startIndex: number) => {
-    let current = startIndex;
+  // Poll the generation_jobs table for step completion
+  const pollRemainingSteps = useCallback(async (sid: string) => {
+    pollingRef.current = true;
 
-    const runNext = () => {
-      if (current >= INITIAL_STEPS.length) {
-        // All done
-        setSteps(INITIAL_STEPS.map((s) => ({ ...s, status: "complete" })));
-        setIsGenerating(false);
-        setIsComplete(true);
-        setActiveStep(0);
-        return;
+    // Start at step index 2 (visuals), which is POLL_STEPS[0]
+    for (let i = 0; i < POLL_STEPS.length; i++) {
+      const stepName = POLL_STEPS[i];
+      const stepIndex = i + 2; // maps to steps array (0=brief, 1=script, 2=visuals, 3=audio, 4=export)
+
+      setStepStatus(stepIndex, "active");
+      setActiveStep(stepIndex + 1);
+
+      // Poll until this step is completed
+      let completed = false;
+      while (!completed && pollingRef.current) {
+        const { data, error } = await supabase
+          .from("generation_jobs")
+          .select("status")
+          .eq("session_id", sid)
+          .eq("step", stepName)
+          .maybeSingle();
+
+        if (error) {
+          console.error(`Polling error for ${stepName}:`, error);
+          break;
+        }
+
+        if (data?.status === "completed") {
+          completed = true;
+        } else if (data?.status === "failed") {
+          toast.error(`Step "${stepName}" failed.`);
+          pollingRef.current = false;
+          setIsGenerating(false);
+          return;
+        } else {
+          await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+        }
       }
-      setStepStatus(current, "active");
-      setActiveStep(current + 1);
-      timerRef.current = setTimeout(() => {
-        current++;
-        runNext();
-      }, REMAINING_STEP_DURATIONS[current - startIndex] ?? 3000);
-    };
 
-    runNext();
-  };
+      if (!pollingRef.current) return; // cancelled
+    }
+
+    // All steps done
+    setSteps(INITIAL_STEPS.map((s) => ({ ...s, status: "complete" })));
+    setIsGenerating(false);
+    setIsComplete(true);
+    setActiveStep(0);
+    pollingRef.current = false;
+  }, []);
 
   const handleGenerate = async (brief: string) => {
-    if (timerRef.current) clearTimeout(timerRef.current);
+    pollingRef.current = false; // cancel any existing poll
 
     setIsComplete(false);
     setIsGenerating(true);
@@ -76,6 +106,16 @@ export default function Index() {
     setStepStatus(0, "active");
 
     try {
+      // Create a new session id for this generation run
+      const sid = crypto.randomUUID();
+      setSessionId(sid);
+
+      // Insert pending rows for each polled step
+      const { error: insertErr } = await supabase.from("generation_jobs").insert(
+        POLL_STEPS.map((step) => ({ session_id: sid, step, status: "pending" }))
+      );
+      if (insertErr) throw new Error("Failed to initialize generation jobs");
+
       const response = await fetch(`${SUPABASE_URL}/functions/v1/analyze-brief`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -105,8 +145,8 @@ export default function Index() {
 
       setAdScript(data.script ?? null);
 
-      // Mark scripting complete, then simulate visuals/audio/export
-      simulateRemainingSteps(2);
+      // Mark scripting complete, then poll remaining steps
+      pollRemainingSteps(sid);
     } catch (err) {
       console.error("Generation error:", err);
       toast.error(err instanceof Error ? err.message : "Something went wrong. Please try again.");
@@ -118,7 +158,7 @@ export default function Index() {
 
   useEffect(() => {
     return () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
+      pollingRef.current = false;
     };
   }, []);
 
