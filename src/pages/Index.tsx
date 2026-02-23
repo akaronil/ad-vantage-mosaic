@@ -1,14 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { toast } from "sonner";
+import JSZip from "jszip";
 import { supabase } from "@/integrations/supabase/client";
-import CampaignBrief from "@/components/CampaignBrief";
+import CampaignBrief, { AdvancedSettings } from "@/components/CampaignBrief";
 import VideoPreview from "@/components/VideoPreview";
 import ProgressStepper, { Step } from "@/components/ProgressStepper";
 import ExtractedInfoTags, { ExtractedInfo } from "@/components/ExtractedInfoTags";
 import ScriptCard, { AdScript } from "@/components/ScriptCard";
 import VisualsPanel from "@/components/VisualsPanel";
 import AudioPanel from "@/components/AudioPanel";
-import { Zap, History, Settings, Bell } from "lucide-react";
+import NavSheets from "@/components/NavSheets";
+import { Zap, History, Settings, Bell, Download, BarChart3, Loader2 } from "lucide-react";
 
 const INITIAL_STEPS: Step[] = [
   { id: 1, label: "Brief Analysis", description: "Extract intent, audience & key messages", status: "pending" },
@@ -18,10 +20,8 @@ const INITIAL_STEPS: Step[] = [
   { id: 5, label: "Final Export", description: "Render, encode & optimize for platform", status: "pending" },
 ];
 
-// Steps that are driven by polling: visuals -> audio -> export
 const POLL_STEPS = ["visuals", "audio", "export"] as const;
 const POLL_INTERVAL_MS = 1500;
-
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
 export default function Index() {
@@ -32,7 +32,13 @@ export default function Index() {
   const [extractedInfo, setExtractedInfo] = useState<ExtractedInfo | null>(null);
   const [adScript, setAdScript] = useState<AdScript | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
   const pollingRef = useRef(false);
+
+  // Sheet states
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [analyticsOpen, setAnalyticsOpen] = useState(false);
 
   const setStepStatus = (stepIndex: number, status: Step["status"]) => {
     setSteps((prev) =>
@@ -42,19 +48,14 @@ export default function Index() {
     );
   };
 
-  // Poll the generation_jobs table for step completion
   const pollRemainingSteps = useCallback(async (sid: string) => {
     pollingRef.current = true;
-
-    // Start at step index 2 (visuals), which is POLL_STEPS[0]
     for (let i = 0; i < POLL_STEPS.length; i++) {
       const stepName = POLL_STEPS[i];
-      const stepIndex = i + 2; // maps to steps array (0=brief, 1=script, 2=visuals, 3=audio, 4=export)
-
+      const stepIndex = i + 2;
       setStepStatus(stepIndex, "active");
       setActiveStep(stepIndex + 1);
 
-      // Poll until this step is completed
       let completed = false;
       while (!completed && pollingRef.current) {
         const { data, error } = await supabase
@@ -64,11 +65,7 @@ export default function Index() {
           .eq("step", stepName)
           .maybeSingle();
 
-        if (error) {
-          console.error(`Polling error for ${stepName}:`, error);
-          break;
-        }
-
+        if (error) { console.error(`Polling error for ${stepName}:`, error); break; }
         if (data?.status === "completed") {
           completed = true;
         } else if (data?.status === "failed") {
@@ -80,11 +77,9 @@ export default function Index() {
           await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
         }
       }
-
-      if (!pollingRef.current) return; // cancelled
+      if (!pollingRef.current) return;
     }
 
-    // All steps done
     setSteps(INITIAL_STEPS.map((s) => ({ ...s, status: "complete" })));
     setIsGenerating(false);
     setIsComplete(true);
@@ -92,25 +87,20 @@ export default function Index() {
     pollingRef.current = false;
   }, []);
 
-  const handleGenerate = async (brief: string) => {
-    pollingRef.current = false; // cancel any existing poll
-
+  const handleGenerate = async (brief: string, advancedSettings: AdvancedSettings) => {
+    pollingRef.current = false;
     setIsComplete(false);
     setIsGenerating(true);
     setExtractedInfo(null);
     setAdScript(null);
     setSteps(INITIAL_STEPS);
     setActiveStep(1);
-
-    // Step 1: Brief Analysis — activate
     setStepStatus(0, "active");
 
     try {
-      // Create a new session id for this generation run
       const sid = crypto.randomUUID();
       setSessionId(sid);
 
-      // Insert pending rows for each polled step
       const { error: insertErr } = await supabase.from("generation_jobs").insert(
         POLL_STEPS.map((step) => ({ session_id: sid, step, status: "pending" }))
       );
@@ -119,20 +109,21 @@ export default function Index() {
       const response = await fetch(`${SUPABASE_URL}/functions/v1/analyze-brief`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ brief }),
+        body: JSON.stringify({
+          brief,
+          metadata: {
+            aspectRatio: advancedSettings.aspectRatio,
+            audioModel: advancedSettings.audioModel,
+            visualStyle: advancedSettings.visualStyle,
+          },
+        }),
       });
 
       const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Failed to analyze brief");
 
-      if (!response.ok) {
-        throw new Error(data.error ?? "Failed to analyze brief");
-      }
-
-      // Step 1 complete, Step 2 active (scripting)
       setStepStatus(1, "active");
       setActiveStep(2);
-
-      // Show extracted info immediately
       setExtractedInfo({
         productName: data.productName ?? "Unknown",
         audience: data.audience ?? "Unknown",
@@ -140,12 +131,8 @@ export default function Index() {
         duration: data.duration ?? "Unknown",
       });
 
-      // Small delay to show scripting step, then reveal script
       await new Promise((r) => setTimeout(r, 1200));
-
       setAdScript(data.script ?? null);
-
-      // Mark scripting complete, then poll remaining steps
       pollRemainingSteps(sid);
     } catch (err) {
       console.error("Generation error:", err);
@@ -156,10 +143,67 @@ export default function Index() {
     }
   };
 
+  const handleDownloadAll = async () => {
+    if (!adScript || !sessionId) return;
+    setIsDownloading(true);
+    try {
+      const zip = new JSZip();
+
+      // Manifest
+      const manifest = {
+        sessionId,
+        generatedAt: new Date().toISOString(),
+        extractedInfo,
+        script: adScript,
+        scenes: [
+          { scene: "Hook", timing: "0–3s", text: adScript.hook },
+          { scene: "Body", timing: "3–12s", text: adScript.body },
+          { scene: "CTA", timing: "12–15s", text: adScript.cta },
+        ],
+      };
+      zip.file("manifest.json", JSON.stringify(manifest, null, 2));
+
+      // Script as text
+      zip.file("script.txt", `HOOK (0–3s):\n${adScript.hook}\n\nBODY (3–12s):\n${adScript.body}\n\nCTA (12–15s):\n${adScript.cta}`);
+
+      // Try to fetch voiceover from storage
+      try {
+        const { data: files } = await supabase.storage
+          .from("audio-assets")
+          .list("", { search: sessionId });
+        if (files && files.length > 0) {
+          const { data: fileData } = await supabase.storage
+            .from("audio-assets")
+            .download(files[0].name);
+          if (fileData) zip.file("voiceover.mp3", fileData);
+        }
+      } catch {
+        // No voiceover available, skip
+      }
+
+      // Scene descriptions
+      const scenesFolder = zip.folder("scenes");
+      scenesFolder?.file("scene-1-hook.txt", `Scene 1 — Hook (0–3s)\n\n${adScript.hook}`);
+      scenesFolder?.file("scene-2-body.txt", `Scene 2 — Body (3–12s)\n\n${adScript.body}`);
+      scenesFolder?.file("scene-3-cta.txt", `Scene 3 — CTA (12–15s)\n\n${adScript.cta}`);
+
+      const blob = await zip.generateAsync({ type: "blob" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `advantage-${sessionId.slice(0, 8)}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Assets downloaded!");
+    } catch (err) {
+      toast.error("Failed to generate ZIP");
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   useEffect(() => {
-    return () => {
-      pollingRef.current = false;
-    };
+    return () => { pollingRef.current = false; };
   }, []);
 
   return (
@@ -198,6 +242,7 @@ export default function Index() {
           {["Dashboard", "Projects", "Templates", "Analytics"].map((item, i) => (
             <button
               key={item}
+              onClick={item === "Analytics" ? () => setAnalyticsOpen(true) : undefined}
               className="px-4 py-1.5 rounded-lg text-sm transition-colors duration-200"
               style={
                 i === 0
@@ -215,10 +260,16 @@ export default function Index() {
           <button className="w-8 h-8 rounded-lg flex items-center justify-center border border-border hover:bg-secondary transition-colors">
             <Bell className="w-4 h-4 text-muted-foreground" />
           </button>
-          <button className="w-8 h-8 rounded-lg flex items-center justify-center border border-border hover:bg-secondary transition-colors">
+          <button
+            onClick={() => setHistoryOpen(true)}
+            className="w-8 h-8 rounded-lg flex items-center justify-center border border-border hover:bg-secondary transition-colors"
+          >
             <History className="w-4 h-4 text-muted-foreground" />
           </button>
-          <button className="w-8 h-8 rounded-lg flex items-center justify-center border border-border hover:bg-secondary transition-colors">
+          <button
+            onClick={() => setSettingsOpen(true)}
+            className="w-8 h-8 rounded-lg flex items-center justify-center border border-border hover:bg-secondary transition-colors"
+          >
             <Settings className="w-4 h-4 text-muted-foreground" />
           </button>
           <div
@@ -235,33 +286,24 @@ export default function Index() {
 
       {/* Main Layout */}
       <main className="flex-1 flex flex-col lg:flex-row gap-0 overflow-hidden">
-        {/* Left Sidebar — Campaign Brief + Stepper */}
+        {/* Left Sidebar */}
         <aside
           className="w-full lg:w-[360px] xl:w-[400px] flex-shrink-0 border-r border-border flex flex-col overflow-y-auto scrollbar-hide"
           style={{ background: "hsl(var(--card))" }}
         >
-          {/* Brief input */}
           <div className="p-6 border-b border-border">
             <CampaignBrief onGenerate={handleGenerate} isGenerating={isGenerating} />
           </div>
-
-          {/* Extracted Info */}
           {extractedInfo && (
             <div className="p-6 border-b border-border">
               <ExtractedInfoTags info={extractedInfo} />
             </div>
           )}
-
-          {/* Progress Stepper */}
           <div className="p-6">
             <div className="flex items-center justify-between mb-4">
               <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Pipeline</p>
-              {isComplete && (
-                <span className="text-xs text-cyan animate-fade-in-up">✦ Complete</span>
-              )}
-              {isGenerating && (
-                <span className="text-xs text-muted-foreground">Step {activeStep} of 5</span>
-              )}
+              {isComplete && <span className="text-xs text-cyan animate-fade-in-up">✦ Complete</span>}
+              {isGenerating && <span className="text-xs text-muted-foreground">Step {activeStep} of 5</span>}
             </div>
             <ProgressStepper steps={steps} />
           </div>
@@ -269,31 +311,16 @@ export default function Index() {
 
         {/* Right — Video Preview + Script */}
         <section className="flex-1 p-6 overflow-y-auto scrollbar-hide flex flex-col gap-6">
-          {/* Video Preview */}
           <div className="flex-1" style={{ minHeight: "360px" }}>
-            <VideoPreview
-              isGenerating={isGenerating}
-              isComplete={isComplete}
-              activeStep={activeStep}
-            />
+            <VideoPreview isGenerating={isGenerating} isComplete={isComplete} activeStep={activeStep} />
           </div>
-
-          {/* Script Card */}
           {adScript && (
             <div className="animate-fade-in-up">
               <ScriptCard script={adScript} />
             </div>
           )}
-
-          {/* Visuals Panel — show after visuals step starts (step 3+) */}
-          {adScript && (activeStep >= 3 || isComplete) && (
-            <VisualsPanel script={adScript} />
-          )}
-
-          {/* Audio Panel — show after audio step starts (step 4+) */}
-          {adScript && (activeStep >= 4 || isComplete) && (
-            <AudioPanel />
-          )}
+          {adScript && (activeStep >= 3 || isComplete) && <VisualsPanel script={adScript} />}
+          {adScript && (activeStep >= 4 || isComplete) && <AudioPanel />}
         </section>
       </main>
 
@@ -316,14 +343,51 @@ export default function Index() {
           <span className="text-border">·</span>
           <span className="text-xs text-muted-foreground">AdVantage Studio v2.1</span>
         </div>
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          <span>Gemini Flash</span>
-          <span className="text-border">·</span>
-          <span>ElevenLabs Audio</span>
-          <span className="text-border">·</span>
-          <span>SDXL Visuals</span>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span>Gemini Flash</span>
+            <span className="text-border">·</span>
+            <span>ElevenLabs Audio</span>
+            <span className="text-border">·</span>
+            <span>SDXL Visuals</span>
+          </div>
+          <button
+            onClick={handleDownloadAll}
+            disabled={!isComplete || isDownloading}
+            className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-display font-semibold transition-all duration-300 border disabled:opacity-40 disabled:cursor-not-allowed"
+            style={
+              isComplete
+                ? {
+                    background: "hsl(186 100% 50% / 0.12)",
+                    borderColor: "hsl(186 100% 50% / 0.4)",
+                    color: "hsl(var(--cyan))",
+                  }
+                : {
+                    background: "hsl(var(--secondary))",
+                    borderColor: "hsl(var(--border))",
+                    color: "hsl(var(--muted-foreground))",
+                  }
+            }
+          >
+            {isDownloading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+            Download All Assets
+          </button>
         </div>
       </footer>
+
+      {/* Sheet panels */}
+      <NavSheets
+        historyOpen={historyOpen}
+        settingsOpen={settingsOpen}
+        analyticsOpen={analyticsOpen}
+        onHistoryChange={setHistoryOpen}
+        onSettingsChange={setSettingsOpen}
+        onAnalyticsChange={setAnalyticsOpen}
+        onLoadSession={(sid) => {
+          setHistoryOpen(false);
+          toast.info(`Session ${sid.slice(0, 8)}… selected`);
+        }}
+      />
     </div>
   );
 }

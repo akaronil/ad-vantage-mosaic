@@ -12,7 +12,7 @@ serve(async (req) => {
   }
 
   try {
-    const { brief } = await req.json();
+    const { brief, metadata } = await req.json();
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
@@ -21,10 +21,14 @@ serve(async (req) => {
     Analyze campaign briefs and extract structured information, then write professional ad scripts.
     Always be creative, concise, and audience-focused. Your script must be punchy and conversion-optimized.`;
 
+    const metaSection = metadata
+      ? `\n\nADVANCED SETTINGS:\n- Aspect Ratio: ${metadata.aspectRatio ?? "9:16"}\n- Audio Model: ${metadata.audioModel ?? "eleven_v3"}\n- Visual Style: ${metadata.visualStyle ?? "cinematic"}`
+      : "";
+
     const userPrompt = `Analyze this campaign brief and return structured data:
 
 BRIEF:
-${brief}
+${brief}${metaSection}
 
 Extract the following fields:
 - productName: The product or brand name (string)
