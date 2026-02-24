@@ -16,7 +16,9 @@ export type Database = {
     Tables: {
       generation_jobs: {
         Row: {
+          ad_script: Json | null
           created_at: string
+          extracted_info: Json | null
           id: string
           session_id: string
           status: string
@@ -24,7 +26,9 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          ad_script?: Json | null
           created_at?: string
+          extracted_info?: Json | null
           id?: string
           session_id: string
           status?: string
@@ -32,7 +36,9 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          ad_script?: Json | null
           created_at?: string
+          extracted_info?: Json | null
           id?: string
           session_id?: string
           status?: string
