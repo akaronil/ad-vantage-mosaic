@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Sparkles, ChevronDown, ChevronUp } from "lucide-react";
 
 export interface AdvancedSettings {
@@ -10,6 +10,8 @@ export interface AdvancedSettings {
 interface CampaignBriefProps {
   onGenerate: (brief: string, advancedSettings: AdvancedSettings) => void;
   isGenerating: boolean;
+  templateBrief?: string | null;
+  onTemplateBriefConsumed?: () => void;
 }
 
 const EXAMPLE_BRIEF = `Product: NovaPods Pro — Noise-cancelling wireless earbuds
@@ -40,7 +42,7 @@ const VISUAL_STYLES = [
   { value: "3d_render", label: "3D Render" },
 ];
 
-export default function CampaignBrief({ onGenerate, isGenerating }: CampaignBriefProps) {
+export default function CampaignBrief({ onGenerate, isGenerating, templateBrief, onTemplateBriefConsumed }: CampaignBriefProps) {
   const [brief, setBrief] = useState("");
   const [selectedFormat, setSelectedFormat] = useState("30s Reel");
   const [selectedTone, setSelectedTone] = useState("Cinematic");
@@ -51,6 +53,13 @@ export default function CampaignBrief({ onGenerate, isGenerating }: CampaignBrie
     audioModel: "eleven_v3",
     visualStyle: "cinematic",
   });
+
+  useEffect(() => {
+    if (templateBrief) {
+      setBrief(templateBrief);
+      onTemplateBriefConsumed?.();
+    }
+  }, [templateBrief, onTemplateBriefConsumed]);
 
   const handleGenerate = () => {
     const fullBrief = `${brief || EXAMPLE_BRIEF}\n\nPreferred Format: ${selectedFormat}\nPreferred Tone: ${selectedTone}\nAspect Ratio: ${selectedRatio}`;
