@@ -11,7 +11,7 @@ import ScriptCard, { AdScript } from "@/components/ScriptCard";
 import VisualsPanel from "@/components/VisualsPanel";
 import AudioPanel from "@/components/AudioPanel";
 import NavSheets from "@/components/NavSheets";
-import { Zap, History, Settings, Bell, Download, Loader2 } from "lucide-react";
+import { Zap, History, Settings, Bell, Download, Loader2, Sun, Moon } from "lucide-react";
 
 const INITIAL_STEPS: Step[] = [
   { id: 1, label: "Brief Analysis", description: "Extract intent, audience & key messages", status: "pending" },
@@ -34,6 +34,14 @@ export default function Index() {
   const [adScript, setAdScript] = useState<AdScript | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [hasNewCompletion, setHasNewCompletion] = useState(false);
+  const [theme, setTheme] = useState<"dark" | "light">(() => {
+    if (typeof window !== "undefined") {
+      return (localStorage.getItem("advantage-theme") as "dark" | "light") || "dark";
+    }
+    return "dark";
+  });
+  const [templateBrief, setTemplateBrief] = useState<string | null>(null);
   const pollingRef = useRef(false);
 
   // Sheet states
@@ -41,6 +49,20 @@ export default function Index() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
+
+  // Theme effect
+  useEffect(() => {
+    const root = document.documentElement;
+    if (theme === "light") {
+      root.classList.add("light");
+    } else {
+      root.classList.remove("light");
+    }
+    localStorage.setItem("advantage-theme", theme);
+  }, [theme]);
+
+  const toggleTheme = () => setTheme((t) => (t === "dark" ? "light" : "dark"));
 
   const setStepStatus = (stepIndex: number, status: Step["status"]) => {
     setSteps((prev) =>
@@ -85,16 +107,19 @@ export default function Index() {
     setSteps(INITIAL_STEPS.map((s) => ({ ...s, status: "complete" })));
     setIsGenerating(false);
     setIsComplete(true);
+    setHasNewCompletion(true);
     setActiveStep(0);
     pollingRef.current = false;
   }, []);
 
   const handleGenerate = async (brief: string, advancedSettings: AdvancedSettings) => {
+    // Clear all previous state immediately
     pollingRef.current = false;
     setIsComplete(false);
     setIsGenerating(true);
     setExtractedInfo(null);
     setAdScript(null);
+    setSessionId(null);
     setSteps(INITIAL_STEPS);
     setActiveStep(1);
     setStepStatus(0, "active");
@@ -139,7 +164,6 @@ export default function Index() {
       await new Promise((r) => setTimeout(r, 1200));
       setAdScript(script);
 
-      // Persist extracted info and script for history reload
       await supabase
         .from("generation_jobs")
         .update({ extracted_info: info as any, ad_script: script as any })
@@ -209,7 +233,6 @@ export default function Index() {
     try {
       const zip = new JSZip();
 
-      // Manifest
       const manifest = {
         sessionId,
         generatedAt: new Date().toISOString(),
@@ -222,15 +245,11 @@ export default function Index() {
         ],
       };
       zip.file("manifest.json", JSON.stringify(manifest, null, 2));
-
-      // Script as text
       zip.file("script.txt", `HOOK (0–3s):\n${adScript.hook}\n\nBODY (3–12s):\n${adScript.body}\n\nCTA (12–15s):\n${adScript.cta}`);
 
-      // Script PDF
       const pdfBlob = generateScriptPdf(adScript, extractedInfo);
       zip.file("script.pdf", pdfBlob);
 
-      // Voiceover from audio-assets bucket
       try {
         const { data: audioFiles } = await supabase.storage
           .from("audio-assets")
@@ -241,11 +260,8 @@ export default function Index() {
             .download(audioFiles[0].name);
           if (fileData) zip.file("voiceover.mp3", fileData);
         }
-      } catch {
-        // No voiceover available
-      }
+      } catch { /* No voiceover available */ }
 
-      // Video assets from video-assets bucket
       try {
         const { data: videoFiles } = await supabase.storage
           .from("video-assets")
@@ -259,11 +275,8 @@ export default function Index() {
             if (vData) videosFolder?.file(vf.name, vData);
           }
         }
-      } catch {
-        // No video assets or bucket doesn't exist
-      }
+      } catch { /* No video assets */ }
 
-      // Scene descriptions
       const scenesFolder = zip.folder("scenes");
       scenesFolder?.file("scene-1-hook.txt", `Scene 1 — Hook (0–3s)\n\n${adScript.hook}`);
       scenesFolder?.file("scene-2-body.txt", `Scene 2 — Body (3–12s)\n\n${adScript.body}`);
@@ -294,6 +307,10 @@ export default function Index() {
     setSteps(INITIAL_STEPS.map((s) => ({ ...s, status: "complete" })));
     setActiveStep(0);
     toast.success(`Loaded session ${sid.slice(0, 8)}…`);
+  };
+
+  const handleLoadTemplate = (brief: string) => {
+    setTemplateBrief(brief);
   };
 
   useEffect(() => {
@@ -336,7 +353,12 @@ export default function Index() {
           {["Dashboard", "Projects", "Templates", "Analytics"].map((item, i) => (
             <button
               key={item}
-              onClick={item === "Analytics" ? () => setAnalyticsOpen(true) : undefined}
+              onClick={
+                item === "Analytics" ? () => setAnalyticsOpen(true)
+                : item === "Projects" ? () => setHistoryOpen(true)
+                : item === "Templates" ? () => setTemplatesOpen(true)
+                : undefined
+              }
               className="px-4 py-1.5 rounded-lg text-sm transition-colors duration-200"
               style={
                 i === 0
@@ -351,11 +373,30 @@ export default function Index() {
 
         {/* Right actions */}
         <div className="flex items-center gap-2">
+          {/* Theme toggle */}
           <button
-            onClick={() => toast.info("No new notifications.")}
+            onClick={toggleTheme}
             className="w-8 h-8 rounded-lg flex items-center justify-center border border-border hover:bg-secondary transition-colors"
+            title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+          >
+            {theme === "dark" ? (
+              <Sun className="w-4 h-4 text-muted-foreground" />
+            ) : (
+              <Moon className="w-4 h-4 text-muted-foreground" />
+            )}
+          </button>
+          {/* Bell with notification dot */}
+          <button
+            onClick={() => {
+              setHasNewCompletion(false);
+              toast.info("No new notifications.");
+            }}
+            className="relative w-8 h-8 rounded-lg flex items-center justify-center border border-border hover:bg-secondary transition-colors"
           >
             <Bell className="w-4 h-4 text-muted-foreground" />
+            {hasNewCompletion && (
+              <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-destructive" />
+            )}
           </button>
           <button
             onClick={() => setHistoryOpen(true)}
@@ -390,7 +431,7 @@ export default function Index() {
           style={{ background: "hsl(var(--card))" }}
         >
           <div className="p-6 border-b border-border">
-            <CampaignBrief onGenerate={handleGenerate} isGenerating={isGenerating} />
+            <CampaignBrief onGenerate={handleGenerate} isGenerating={isGenerating} templateBrief={templateBrief} onTemplateBriefConsumed={() => setTemplateBrief(null)} />
           </div>
           {extractedInfo && (
             <div className="p-6 border-b border-border">
@@ -479,11 +520,14 @@ export default function Index() {
         settingsOpen={settingsOpen}
         analyticsOpen={analyticsOpen}
         profileOpen={profileOpen}
+        templatesOpen={templatesOpen}
         onHistoryChange={setHistoryOpen}
         onSettingsChange={setSettingsOpen}
         onAnalyticsChange={setAnalyticsOpen}
         onProfileChange={setProfileOpen}
+        onTemplatesChange={setTemplatesOpen}
         onLoadSession={handleLoadSession}
+        onLoadTemplate={handleLoadTemplate}
       />
     </div>
   );

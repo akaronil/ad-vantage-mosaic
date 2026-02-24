@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
-import { History, Settings, BarChart3, Loader2, RefreshCw, User } from "lucide-react";
+import { History, Settings, BarChart3, Loader2, RefreshCw, User, LogOut, Sparkles } from "lucide-react";
+import { toast } from "sonner";
 import {
   Sheet,
   SheetContent,
@@ -16,11 +17,14 @@ interface NavSheetsProps {
   settingsOpen: boolean;
   analyticsOpen: boolean;
   profileOpen: boolean;
+  templatesOpen: boolean;
   onHistoryChange: (open: boolean) => void;
   onSettingsChange: (open: boolean) => void;
   onAnalyticsChange: (open: boolean) => void;
   onProfileChange: (open: boolean) => void;
+  onTemplatesChange: (open: boolean) => void;
   onLoadSession?: (sessionId: string, extractedInfo: ExtractedInfo | null, adScript: AdScript | null) => void;
+  onLoadTemplate?: (brief: string) => void;
 }
 
 interface SessionEntry {
@@ -32,16 +36,40 @@ interface SessionEntry {
   ad_script: AdScript | null;
 }
 
+const TEMPLATES = [
+  {
+    title: "Luxury Product",
+    icon: "✦",
+    description: "High-end product showcase with cinematic slow-motion and premium feel.",
+    brief: `Product: Noir Lumière — Luxury Leather Watch\n\nTarget Audience: Affluent professionals aged 30–55 who value craftsmanship and exclusivity.\n\nTone: Premium, cinematic, aspirational\n\nKey Message: "Timeless by design. Crafted for the extraordinary."\n\nDuration: 30-second vertical video ad for Instagram Reels`,
+  },
+  {
+    title: "Tech Sizzler",
+    icon: "⚡",
+    description: "Fast-paced tech reveal with glitch effects and bold typography.",
+    brief: `Product: VortexPad Ultra — Next-gen Tablet\n\nTarget Audience: Tech enthusiasts and creators aged 18–35 who demand bleeding-edge performance.\n\nTone: Energetic, futuristic, bold\n\nKey Message: "Create at the speed of thought."\n\nDuration: 15-second story ad for TikTok`,
+  },
+  {
+    title: "Social Hype",
+    icon: "🔥",
+    description: "Trend-native UGC-style ad optimized for viral reach.",
+    brief: `Product: GlowUp Serum — Vitamin C Face Serum\n\nTarget Audience: Gen Z beauty enthusiasts aged 16–28 active on TikTok and Instagram.\n\nTone: Playful, authentic, trend-aware\n\nKey Message: "Your skin's new best friend. #GlowUpChallenge"\n\nDuration: 30-second vertical video ad for TikTok`,
+  },
+];
+
 export default function NavSheets({
   historyOpen,
   settingsOpen,
   analyticsOpen,
   profileOpen,
+  templatesOpen,
   onHistoryChange,
   onSettingsChange,
   onAnalyticsChange,
   onProfileChange,
+  onTemplatesChange,
   onLoadSession,
+  onLoadTemplate,
 }: NavSheetsProps) {
   const [sessions, setSessions] = useState<SessionEntry[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(false);
@@ -57,7 +85,6 @@ export default function NavSheets({
 
       if (error) throw error;
 
-      // Group by session_id
       const map = new Map<string, SessionEntry>();
       for (const row of data ?? []) {
         if (!map.has(row.session_id)) {
@@ -72,7 +99,6 @@ export default function NavSheets({
         }
         const entry = map.get(row.session_id)!;
         entry.steps.push(row.step);
-        // Prefer non-null data from any row
         if (!entry.extracted_info && row.extracted_info) entry.extracted_info = row.extracted_info as unknown as ExtractedInfo;
         if (!entry.ad_script && row.ad_script) entry.ad_script = row.ad_script as unknown as AdScript;
         if (row.status === "completed") entry.status = "completed";
@@ -124,11 +150,7 @@ export default function NavSheets({
                 <button
                   key={s.session_id}
                   onClick={() => onLoadSession?.(s.session_id, s.extracted_info, s.ad_script)}
-                  className="w-full text-left p-3 rounded-xl border transition-all duration-200 hover:border-cyan/30"
-                  style={{
-                    background: "hsl(var(--secondary))",
-                    borderColor: "hsl(var(--border))",
-                  }}
+                  className="w-full text-left p-3 rounded-xl border transition-all duration-200 hover:border-cyan/30 bg-secondary border-border"
                 >
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-xs font-mono text-muted-foreground truncate max-w-[200px]">
@@ -169,6 +191,42 @@ export default function NavSheets({
         </SheetContent>
       </Sheet>
 
+      {/* Templates Sheet */}
+      <Sheet open={templatesOpen} onOpenChange={onTemplatesChange}>
+        <SheetContent side="right" className="bg-card border-border w-[380px] sm:max-w-[380px]">
+          <SheetHeader>
+            <SheetTitle className="font-display flex items-center gap-2 text-foreground">
+              <Sparkles className="w-4 h-4 text-cyan" />
+              Templates
+            </SheetTitle>
+            <SheetDescription className="text-muted-foreground">
+              Start from a pre-built campaign brief.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="mt-4 space-y-3">
+            {TEMPLATES.map((t) => (
+              <button
+                key={t.title}
+                onClick={() => {
+                  onLoadTemplate?.(t.brief);
+                  onTemplatesChange(false);
+                  toast.success(`Loaded "${t.title}" template`);
+                }}
+                className="w-full text-left p-4 rounded-xl border transition-all duration-200 hover:border-cyan/40 bg-secondary border-border group"
+              >
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="text-lg">{t.icon}</span>
+                  <span className="text-sm font-display font-semibold text-foreground group-hover:text-cyan transition-colors">
+                    {t.title}
+                  </span>
+                </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">{t.description}</p>
+              </button>
+            ))}
+          </div>
+        </SheetContent>
+      </Sheet>
+
       {/* Settings Sheet */}
       <Sheet open={settingsOpen} onOpenChange={onSettingsChange}>
         <SheetContent side="right" className="bg-card border-border w-[380px] sm:max-w-[380px]">
@@ -190,8 +248,7 @@ export default function NavSheets({
             ].map((item) => (
               <div
                 key={item.label}
-                className="flex items-center justify-between p-3 rounded-xl border"
-                style={{ background: "hsl(var(--secondary))", borderColor: "hsl(var(--border))" }}
+                className="flex items-center justify-between p-3 rounded-xl border bg-secondary border-border"
               >
                 <span className="text-sm text-foreground">{item.label}</span>
                 <span className="text-xs text-muted-foreground">{item.value}</span>
@@ -222,8 +279,7 @@ export default function NavSheets({
             ].map((item) => (
               <div
                 key={item.label}
-                className="flex items-center justify-between p-3 rounded-xl border"
-                style={{ background: "hsl(var(--secondary))", borderColor: "hsl(var(--border))" }}
+                className="flex items-center justify-between p-3 rounded-xl border bg-secondary border-border"
               >
                 <span className="text-sm text-foreground">{item.label}</span>
                 <span className="text-sm font-mono text-cyan">{item.value}</span>
@@ -247,7 +303,7 @@ export default function NavSheets({
           </SheetHeader>
           <div className="mt-6 space-y-4">
             {/* Avatar */}
-            <div className="flex items-center gap-4 p-4 rounded-xl border" style={{ background: "hsl(var(--secondary))", borderColor: "hsl(var(--border))" }}>
+            <div className="flex items-center gap-4 p-4 rounded-xl border bg-secondary border-border">
               <div
                 className="w-12 h-12 rounded-full flex items-center justify-center font-display font-bold text-lg"
                 style={{
@@ -263,20 +319,29 @@ export default function NavSheets({
               </div>
             </div>
             {[
-              { label: "Plan", value: "Free" },
+              { label: "Plan", value: "Free Student Tier" },
               { label: "Generations used", value: "12 / 50" },
               { label: "Storage", value: "48 MB / 500 MB" },
               { label: "Member since", value: "Feb 2026" },
             ].map((item) => (
               <div
                 key={item.label}
-                className="flex items-center justify-between p-3 rounded-xl border"
-                style={{ background: "hsl(var(--secondary))", borderColor: "hsl(var(--border))" }}
+                className="flex items-center justify-between p-3 rounded-xl border bg-secondary border-border"
               >
                 <span className="text-sm text-foreground">{item.label}</span>
                 <span className="text-sm font-mono text-cyan">{item.value}</span>
               </div>
             ))}
+            <button
+              onClick={() => {
+                toast.info("Logged out (mocked).");
+                onProfileChange(false);
+              }}
+              className="w-full flex items-center justify-center gap-2 p-3 rounded-xl border border-destructive/30 text-destructive hover:bg-destructive/10 transition-colors text-sm font-medium"
+            >
+              <LogOut className="w-4 h-4" />
+              Log Out
+            </button>
           </div>
         </SheetContent>
       </Sheet>
