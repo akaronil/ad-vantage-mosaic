@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { History, Settings, BarChart3, Loader2, RefreshCw } from "lucide-react";
+import { History, Settings, BarChart3, Loader2, RefreshCw, User } from "lucide-react";
 import {
   Sheet,
   SheetContent,
@@ -8,15 +8,19 @@ import {
   SheetDescription,
 } from "@/components/ui/sheet";
 import { supabase } from "@/integrations/supabase/client";
+import type { ExtractedInfo } from "@/components/ExtractedInfoTags";
+import type { AdScript } from "@/components/ScriptCard";
 
 interface NavSheetsProps {
   historyOpen: boolean;
   settingsOpen: boolean;
   analyticsOpen: boolean;
+  profileOpen: boolean;
   onHistoryChange: (open: boolean) => void;
   onSettingsChange: (open: boolean) => void;
   onAnalyticsChange: (open: boolean) => void;
-  onLoadSession?: (sessionId: string) => void;
+  onProfileChange: (open: boolean) => void;
+  onLoadSession?: (sessionId: string, extractedInfo: ExtractedInfo | null, adScript: AdScript | null) => void;
 }
 
 interface SessionEntry {
@@ -24,15 +28,19 @@ interface SessionEntry {
   created_at: string;
   steps: string[];
   status: string;
+  extracted_info: ExtractedInfo | null;
+  ad_script: AdScript | null;
 }
 
 export default function NavSheets({
   historyOpen,
   settingsOpen,
   analyticsOpen,
+  profileOpen,
   onHistoryChange,
   onSettingsChange,
   onAnalyticsChange,
+  onProfileChange,
   onLoadSession,
 }: NavSheetsProps) {
   const [sessions, setSessions] = useState<SessionEntry[]>([]);
@@ -43,7 +51,7 @@ export default function NavSheets({
     try {
       const { data, error } = await supabase
         .from("generation_jobs")
-        .select("session_id, created_at, step, status")
+        .select("session_id, created_at, step, status, extracted_info, ad_script")
         .order("created_at", { ascending: false })
         .limit(100);
 
@@ -58,15 +66,20 @@ export default function NavSheets({
             created_at: row.created_at,
             steps: [],
             status: "pending",
+            extracted_info: (row.extracted_info as unknown as ExtractedInfo) ?? null,
+            ad_script: (row.ad_script as unknown as AdScript) ?? null,
           });
         }
         const entry = map.get(row.session_id)!;
         entry.steps.push(row.step);
+        // Prefer non-null data from any row
+        if (!entry.extracted_info && row.extracted_info) entry.extracted_info = row.extracted_info as unknown as ExtractedInfo;
+        if (!entry.ad_script && row.ad_script) entry.ad_script = row.ad_script as unknown as AdScript;
         if (row.status === "completed") entry.status = "completed";
         if (row.status === "failed") entry.status = "failed";
       }
 
-      setSessions(Array.from(map.values()));
+      setSessions(Array.from(map.values()).slice(0, 10));
     } catch {
       // silently fail
     } finally {
@@ -89,7 +102,7 @@ export default function NavSheets({
               Generation History
             </SheetTitle>
             <SheetDescription className="text-muted-foreground">
-              Previous sessions from your pipeline runs.
+              Last 10 campaigns. Click to reload.
             </SheetDescription>
           </SheetHeader>
           <div className="mt-4 space-y-2 overflow-y-auto max-h-[calc(100vh-140px)] scrollbar-hide">
@@ -110,7 +123,7 @@ export default function NavSheets({
               sessions.map((s) => (
                 <button
                   key={s.session_id}
-                  onClick={() => onLoadSession?.(s.session_id)}
+                  onClick={() => onLoadSession?.(s.session_id, s.extracted_info, s.ad_script)}
                   className="w-full text-left p-3 rounded-xl border transition-all duration-200 hover:border-cyan/30"
                   style={{
                     background: "hsl(var(--secondary))",
@@ -144,6 +157,11 @@ export default function NavSheets({
                   <p className="text-xs text-muted-foreground">
                     {new Date(s.created_at).toLocaleString()} · {s.steps.length} steps
                   </p>
+                  {s.extracted_info?.productName && (
+                    <p className="text-xs text-cyan mt-1 truncate">
+                      {s.extracted_info.productName}
+                    </p>
+                  )}
                 </button>
               ))
             )}
@@ -201,6 +219,54 @@ export default function NavSheets({
               { label: "Avg generation time", value: "~18s" },
               { label: "Most used tone", value: "Cinematic" },
               { label: "Preferred format", value: "30s Reel" },
+            ].map((item) => (
+              <div
+                key={item.label}
+                className="flex items-center justify-between p-3 rounded-xl border"
+                style={{ background: "hsl(var(--secondary))", borderColor: "hsl(var(--border))" }}
+              >
+                <span className="text-sm text-foreground">{item.label}</span>
+                <span className="text-sm font-mono text-cyan">{item.value}</span>
+              </div>
+            ))}
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {/* User Account Sheet */}
+      <Sheet open={profileOpen} onOpenChange={onProfileChange}>
+        <SheetContent side="right" className="bg-card border-border w-[380px] sm:max-w-[380px]">
+          <SheetHeader>
+            <SheetTitle className="font-display flex items-center gap-2 text-foreground">
+              <User className="w-4 h-4 text-cyan" />
+              User Account
+            </SheetTitle>
+            <SheetDescription className="text-muted-foreground">
+              Your profile and subscription.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="mt-6 space-y-4">
+            {/* Avatar */}
+            <div className="flex items-center gap-4 p-4 rounded-xl border" style={{ background: "hsl(var(--secondary))", borderColor: "hsl(var(--border))" }}>
+              <div
+                className="w-12 h-12 rounded-full flex items-center justify-center font-display font-bold text-lg"
+                style={{
+                  background: "linear-gradient(135deg, hsl(186 100% 45%), hsl(200 100% 50%))",
+                  color: "hsl(var(--primary-foreground))",
+                }}
+              >
+                AJ
+              </div>
+              <div>
+                <p className="text-sm font-display font-semibold text-foreground">Alex Johnson</p>
+                <p className="text-xs text-muted-foreground">alex.johnson@university.edu</p>
+              </div>
+            </div>
+            {[
+              { label: "Plan", value: "Free" },
+              { label: "Generations used", value: "12 / 50" },
+              { label: "Storage", value: "48 MB / 500 MB" },
+              { label: "Member since", value: "Feb 2026" },
             ].map((item) => (
               <div
                 key={item.label}

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { toast } from "sonner";
 import JSZip from "jszip";
+import jsPDF from "jspdf";
 import { supabase } from "@/integrations/supabase/client";
 import CampaignBrief, { AdvancedSettings } from "@/components/CampaignBrief";
 import VideoPreview from "@/components/VideoPreview";
@@ -10,7 +11,7 @@ import ScriptCard, { AdScript } from "@/components/ScriptCard";
 import VisualsPanel from "@/components/VisualsPanel";
 import AudioPanel from "@/components/AudioPanel";
 import NavSheets from "@/components/NavSheets";
-import { Zap, History, Settings, Bell, Download, BarChart3, Loader2 } from "lucide-react";
+import { Zap, History, Settings, Bell, Download, Loader2 } from "lucide-react";
 
 const INITIAL_STEPS: Step[] = [
   { id: 1, label: "Brief Analysis", description: "Extract intent, audience & key messages", status: "pending" },
@@ -39,6 +40,7 @@ export default function Index() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [analyticsOpen, setAnalyticsOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
 
   const setStepStatus = (stepIndex: number, status: Step["status"]) => {
     setSteps((prev) =>
@@ -124,15 +126,26 @@ export default function Index() {
 
       setStepStatus(1, "active");
       setActiveStep(2);
-      setExtractedInfo({
+
+      const info: ExtractedInfo = {
         productName: data.productName ?? "Unknown",
         audience: data.audience ?? "Unknown",
         tone: data.tone ?? "Unknown",
         duration: data.duration ?? "Unknown",
-      });
+      };
+      const script: AdScript | null = data.script ?? null;
 
+      setExtractedInfo(info);
       await new Promise((r) => setTimeout(r, 1200));
-      setAdScript(data.script ?? null);
+      setAdScript(script);
+
+      // Persist extracted info and script for history reload
+      await supabase
+        .from("generation_jobs")
+        .update({ extracted_info: info as any, ad_script: script as any })
+        .eq("session_id", sid)
+        .eq("step", POLL_STEPS[0]);
+
       pollRemainingSteps(sid);
     } catch (err) {
       console.error("Generation error:", err);
@@ -141,6 +154,53 @@ export default function Index() {
       setSteps(INITIAL_STEPS);
       setActiveStep(0);
     }
+  };
+
+  const generateScriptPdf = (script: AdScript, info: ExtractedInfo | null): Blob => {
+    const doc = new jsPDF();
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(20);
+    doc.text("AdVantage Studio — Script", 20, 25);
+
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(120);
+    doc.text(`Generated: ${new Date().toLocaleString()}`, 20, 33);
+
+    if (info) {
+      doc.setTextColor(0);
+      doc.setFontSize(11);
+      doc.setFont("helvetica", "bold");
+      doc.text("Campaign Info", 20, 48);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      doc.text(`Product: ${info.productName}`, 20, 56);
+      doc.text(`Audience: ${info.audience}`, 20, 63);
+      doc.text(`Tone: ${info.tone}`, 20, 70);
+      doc.text(`Duration: ${info.duration}`, 20, 77);
+    }
+
+    let y = info ? 92 : 48;
+    const sections = [
+      { title: "HOOK (0–3s)", text: script.hook },
+      { title: "BODY (3–12s)", text: script.body },
+      { title: "CTA (12–15s)", text: script.cta },
+    ];
+    for (const section of sections) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(12);
+      doc.setTextColor(0, 150, 170);
+      doc.text(section.title, 20, y);
+      y += 8;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      doc.setTextColor(40);
+      const lines = doc.splitTextToSize(section.text, 170);
+      doc.text(lines, 20, y);
+      y += lines.length * 5 + 12;
+    }
+
+    return doc.output("blob");
   };
 
   const handleDownloadAll = async () => {
@@ -166,19 +226,41 @@ export default function Index() {
       // Script as text
       zip.file("script.txt", `HOOK (0–3s):\n${adScript.hook}\n\nBODY (3–12s):\n${adScript.body}\n\nCTA (12–15s):\n${adScript.cta}`);
 
-      // Try to fetch voiceover from storage
+      // Script PDF
+      const pdfBlob = generateScriptPdf(adScript, extractedInfo);
+      zip.file("script.pdf", pdfBlob);
+
+      // Voiceover from audio-assets bucket
       try {
-        const { data: files } = await supabase.storage
+        const { data: audioFiles } = await supabase.storage
           .from("audio-assets")
           .list("", { search: sessionId });
-        if (files && files.length > 0) {
+        if (audioFiles && audioFiles.length > 0) {
           const { data: fileData } = await supabase.storage
             .from("audio-assets")
-            .download(files[0].name);
+            .download(audioFiles[0].name);
           if (fileData) zip.file("voiceover.mp3", fileData);
         }
       } catch {
-        // No voiceover available, skip
+        // No voiceover available
+      }
+
+      // Video assets from video-assets bucket
+      try {
+        const { data: videoFiles } = await supabase.storage
+          .from("video-assets")
+          .list("", { search: sessionId });
+        if (videoFiles && videoFiles.length > 0) {
+          const videosFolder = zip.folder("videos");
+          for (const vf of videoFiles) {
+            const { data: vData } = await supabase.storage
+              .from("video-assets")
+              .download(vf.name);
+            if (vData) videosFolder?.file(vf.name, vData);
+          }
+        }
+      } catch {
+        // No video assets or bucket doesn't exist
       }
 
       // Scene descriptions
@@ -200,6 +282,18 @@ export default function Index() {
     } finally {
       setIsDownloading(false);
     }
+  };
+
+  const handleLoadSession = (sid: string, info: ExtractedInfo | null, script: AdScript | null) => {
+    setHistoryOpen(false);
+    setSessionId(sid);
+    setExtractedInfo(info);
+    setAdScript(script);
+    setIsComplete(true);
+    setIsGenerating(false);
+    setSteps(INITIAL_STEPS.map((s) => ({ ...s, status: "complete" })));
+    setActiveStep(0);
+    toast.success(`Loaded session ${sid.slice(0, 8)}…`);
   };
 
   useEffect(() => {
@@ -257,7 +351,10 @@ export default function Index() {
 
         {/* Right actions */}
         <div className="flex items-center gap-2">
-          <button className="w-8 h-8 rounded-lg flex items-center justify-center border border-border hover:bg-secondary transition-colors">
+          <button
+            onClick={() => toast.info("No new notifications.")}
+            className="w-8 h-8 rounded-lg flex items-center justify-center border border-border hover:bg-secondary transition-colors"
+          >
             <Bell className="w-4 h-4 text-muted-foreground" />
           </button>
           <button
@@ -272,15 +369,16 @@ export default function Index() {
           >
             <Settings className="w-4 h-4 text-muted-foreground" />
           </button>
-          <div
-            className="w-8 h-8 rounded-full ml-1 flex items-center justify-center font-display font-semibold text-xs"
+          <button
+            onClick={() => setProfileOpen(true)}
+            className="w-8 h-8 rounded-full ml-1 flex items-center justify-center font-display font-semibold text-xs cursor-pointer"
             style={{
               background: "linear-gradient(135deg, hsl(186 100% 45%), hsl(200 100% 50%))",
               color: "hsl(var(--primary-foreground))",
             }}
           >
             AJ
-          </div>
+          </button>
         </div>
       </header>
 
@@ -380,13 +478,12 @@ export default function Index() {
         historyOpen={historyOpen}
         settingsOpen={settingsOpen}
         analyticsOpen={analyticsOpen}
+        profileOpen={profileOpen}
         onHistoryChange={setHistoryOpen}
         onSettingsChange={setSettingsOpen}
         onAnalyticsChange={setAnalyticsOpen}
-        onLoadSession={(sid) => {
-          setHistoryOpen(false);
-          toast.info(`Session ${sid.slice(0, 8)}… selected`);
-        }}
+        onProfileChange={setProfileOpen}
+        onLoadSession={handleLoadSession}
       />
     </div>
   );
