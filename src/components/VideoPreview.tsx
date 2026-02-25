@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Download, Play, Pause, Maximize2, Volume2 } from "lucide-react";
+import { Download, Play, Pause, Maximize2, Volume2, VolumeX } from "lucide-react";
 import videoPreviewImg from "@/assets/video-preview.jpg";
 
 interface VideoPreviewProps {
@@ -16,6 +16,7 @@ const SAMPLE_VIDEO_URL =
 export default function VideoPreview({ isGenerating, isComplete, activeStep }: VideoPreviewProps) {
   const [progress, setProgress] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
   const rafRef = useRef<number | null>(null);
   const startRef = useRef<number | null>(null);
@@ -65,6 +66,22 @@ export default function VideoPreview({ isGenerating, isComplete, activeStep }: V
     } else {
       videoRef.current.pause();
       setIsPlaying(false);
+    }
+  };
+
+  const toggleMute = () => {
+    if (!videoRef.current) return;
+    videoRef.current.muted = !videoRef.current.muted;
+    setIsMuted(videoRef.current.muted);
+  };
+
+  const toggleFullscreen = () => {
+    const container = videoRef.current?.parentElement;
+    if (!container) return;
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else {
+      container.requestFullscreen?.();
     }
   };
 
@@ -217,10 +234,22 @@ export default function VideoPreview({ isGenerating, isComplete, activeStep }: V
             )}
           </div>
           <div className="flex items-center gap-2">
-            <button className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors hover:bg-secondary/50">
-              <Volume2 className="w-3.5 h-3.5 text-muted-foreground" />
+            <button
+              onClick={toggleMute}
+              className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors hover:bg-secondary/50"
+              title={isMuted ? "Unmute" : "Mute"}
+            >
+              {isMuted ? (
+                <VolumeX className="w-3.5 h-3.5 text-muted-foreground" />
+              ) : (
+                <Volume2 className="w-3.5 h-3.5 text-muted-foreground" />
+              )}
             </button>
-            <button className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors hover:bg-secondary/50">
+            <button
+              onClick={toggleFullscreen}
+              className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors hover:bg-secondary/50"
+              title="Fullscreen"
+            >
               <Maximize2 className="w-3.5 h-3.5 text-muted-foreground" />
             </button>
           </div>
