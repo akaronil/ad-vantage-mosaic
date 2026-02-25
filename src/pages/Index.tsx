@@ -1,8 +1,7 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import JSZip from "jszip";
 import jsPDF from "jspdf";
-import { supabase } from "@/integrations/supabase/client";
 import CampaignBrief, { AdvancedSettings } from "@/components/CampaignBrief";
 import VideoPreview from "@/components/VideoPreview";
 import ProgressStepper, { Step } from "@/components/ProgressStepper";
@@ -11,6 +10,7 @@ import ScriptCard, { AdScript } from "@/components/ScriptCard";
 import VisualsPanel from "@/components/VisualsPanel";
 import AudioPanel from "@/components/AudioPanel";
 import NavSheets from "@/components/NavSheets";
+import { MOCK_CAMPAIGNS, findBestCampaign } from "@/data/mockCampaigns";
 import { Zap, History, Settings, Bell, Download, Loader2, Sun, Moon } from "lucide-react";
 
 const INITIAL_STEPS: Step[] = [
@@ -21,9 +21,7 @@ const INITIAL_STEPS: Step[] = [
   { id: 5, label: "Final Export", description: "Render, encode & optimize for platform", status: "pending" },
 ];
 
-const POLL_STEPS = ["visuals", "audio", "export"] as const;
-const POLL_INTERVAL_MS = 1500;
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const STEP_DELAYS = [1200, 1800, 2200, 1600, 1000]; // ms per step
 
 export default function Index() {
   const [steps, setSteps] = useState<Step[]>(INITIAL_STEPS);
@@ -42,7 +40,7 @@ export default function Index() {
     return "dark";
   });
   const [templateBrief, setTemplateBrief] = useState<string | null>(null);
-  const pollingRef = useRef(false);
+  const cancelRef = useRef(false);
 
   // Sheet states
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -72,114 +70,55 @@ export default function Index() {
     );
   };
 
-  const pollRemainingSteps = useCallback(async (sid: string) => {
-    pollingRef.current = true;
-    for (let i = 0; i < POLL_STEPS.length; i++) {
-      const stepName = POLL_STEPS[i];
-      const stepIndex = i + 2;
-      setStepStatus(stepIndex, "active");
-      setActiveStep(stepIndex + 1);
+  const simulatePipeline = async (campaign: typeof MOCK_CAMPAIGNS[0]) => {
+    for (let i = 0; i < 5; i++) {
+      if (cancelRef.current) return;
 
-      let completed = false;
-      while (!completed && pollingRef.current) {
-        const { data, error } = await supabase
-          .from("generation_jobs")
-          .select("status")
-          .eq("session_id", sid)
-          .eq("step", stepName)
-          .maybeSingle();
+      setStepStatus(i, "active");
+      setActiveStep(i + 1);
 
-        if (error) { console.error(`Polling error for ${stepName}:`, error); break; }
-        if (data?.status === "completed") {
-          completed = true;
-        } else if (data?.status === "failed") {
-          toast.error(`Step "${stepName}" failed.`);
-          pollingRef.current = false;
-          setIsGenerating(false);
-          return;
-        } else {
-          await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
-        }
+      // Reveal extracted info after step 0 completes
+      if (i === 1) {
+        setExtractedInfo(campaign.info);
       }
-      if (!pollingRef.current) return;
+      // Reveal script after step 1 completes
+      if (i === 2) {
+        setAdScript(campaign.script);
+      }
+
+      await new Promise((r) => setTimeout(r, STEP_DELAYS[i]));
+      if (cancelRef.current) return;
+      setStepStatus(i, "complete");
     }
 
-    setSteps(INITIAL_STEPS.map((s) => ({ ...s, status: "complete" })));
+    setSteps(INITIAL_STEPS.map((s) => ({ ...s, status: "complete" as const })));
     setIsGenerating(false);
     setIsComplete(true);
     setHasNewCompletion(true);
     setActiveStep(0);
-    pollingRef.current = false;
-  }, []);
+  };
 
-  const handleGenerate = async (brief: string, advancedSettings: AdvancedSettings) => {
+  const handleGenerate = async (brief: string, _advancedSettings: AdvancedSettings) => {
     // Clear all previous state immediately
-    pollingRef.current = false;
+    cancelRef.current = true;
+    await new Promise((r) => setTimeout(r, 50)); // let any running loop exit
+    cancelRef.current = false;
+
     setIsComplete(false);
     setIsGenerating(true);
     setExtractedInfo(null);
     setAdScript(null);
-    setSessionId(null);
     setSteps(INITIAL_STEPS);
     setActiveStep(1);
-    setStepStatus(0, "active");
 
-    try {
-      const sid = crypto.randomUUID();
-      setSessionId(sid);
+    const sid = crypto.randomUUID();
+    setSessionId(sid);
 
-      const { error: insertErr } = await supabase.from("generation_jobs").insert(
-        POLL_STEPS.map((step) => ({ session_id: sid, step, status: "pending" }))
-      );
-      if (insertErr) throw new Error("Failed to initialize generation jobs");
-
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/analyze-brief`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          brief,
-          metadata: {
-            aspectRatio: advancedSettings.aspectRatio,
-            audioModel: advancedSettings.audioModel,
-            visualStyle: advancedSettings.visualStyle,
-          },
-        }),
-      });
-
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "Failed to analyze brief");
-
-      setStepStatus(1, "active");
-      setActiveStep(2);
-
-      const info: ExtractedInfo = {
-        productName: data.productName ?? "Unknown",
-        audience: data.audience ?? "Unknown",
-        tone: data.tone ?? "Unknown",
-        duration: data.duration ?? "Unknown",
-      };
-      const script: AdScript | null = data.script ?? null;
-
-      setExtractedInfo(info);
-      await new Promise((r) => setTimeout(r, 1200));
-      setAdScript(script);
-
-      await supabase
-        .from("generation_jobs")
-        .update({ extracted_info: info as any, ad_script: script as any })
-        .eq("session_id", sid)
-        .eq("step", POLL_STEPS[0]);
-
-      pollRemainingSteps(sid);
-    } catch (err) {
-      console.error("Generation error:", err);
-      toast.error(err instanceof Error ? err.message : "Something went wrong. Please try again.");
-      setIsGenerating(false);
-      setSteps(INITIAL_STEPS);
-      setActiveStep(0);
-    }
+    const campaign = findBestCampaign(brief);
+    simulatePipeline(campaign);
   };
 
+  // --- PDF & Download (kept local, no Supabase) ---
   const generateScriptPdf = (script: AdScript, info: ExtractedInfo | null): Blob => {
     const doc = new jsPDF();
     doc.setFont("helvetica", "bold");
@@ -250,33 +189,6 @@ export default function Index() {
       const pdfBlob = generateScriptPdf(adScript, extractedInfo);
       zip.file("script.pdf", pdfBlob);
 
-      try {
-        const { data: audioFiles } = await supabase.storage
-          .from("audio-assets")
-          .list("", { search: sessionId });
-        if (audioFiles && audioFiles.length > 0) {
-          const { data: fileData } = await supabase.storage
-            .from("audio-assets")
-            .download(audioFiles[0].name);
-          if (fileData) zip.file("voiceover.mp3", fileData);
-        }
-      } catch { /* No voiceover available */ }
-
-      try {
-        const { data: videoFiles } = await supabase.storage
-          .from("video-assets")
-          .list("", { search: sessionId });
-        if (videoFiles && videoFiles.length > 0) {
-          const videosFolder = zip.folder("videos");
-          for (const vf of videoFiles) {
-            const { data: vData } = await supabase.storage
-              .from("video-assets")
-              .download(vf.name);
-            if (vData) videosFolder?.file(vf.name, vData);
-          }
-        }
-      } catch { /* No video assets */ }
-
       const scenesFolder = zip.folder("scenes");
       scenesFolder?.file("scene-1-hook.txt", `Scene 1 — Hook (0–3s)\n\n${adScript.hook}`);
       scenesFolder?.file("scene-2-body.txt", `Scene 2 — Body (3–12s)\n\n${adScript.body}`);
@@ -290,7 +202,7 @@ export default function Index() {
       a.click();
       URL.revokeObjectURL(url);
       toast.success("Assets downloaded!");
-    } catch (err) {
+    } catch {
       toast.error("Failed to generate ZIP");
     } finally {
       setIsDownloading(false);
@@ -304,7 +216,7 @@ export default function Index() {
     setAdScript(script);
     setIsComplete(true);
     setIsGenerating(false);
-    setSteps(INITIAL_STEPS.map((s) => ({ ...s, status: "complete" })));
+    setSteps(INITIAL_STEPS.map((s) => ({ ...s, status: "complete" as const })));
     setActiveStep(0);
     toast.success(`Loaded session ${sid.slice(0, 8)}…`);
   };
@@ -314,7 +226,7 @@ export default function Index() {
   };
 
   useEffect(() => {
-    return () => { pollingRef.current = false; };
+    return () => { cancelRef.current = true; };
   }, []);
 
   return (
@@ -373,7 +285,6 @@ export default function Index() {
 
         {/* Right actions */}
         <div className="flex items-center gap-2">
-          {/* Theme toggle */}
           <button
             onClick={toggleTheme}
             className="w-8 h-8 rounded-lg flex items-center justify-center border border-border hover:bg-secondary transition-colors"
@@ -385,7 +296,6 @@ export default function Index() {
               <Moon className="w-4 h-4 text-muted-foreground" />
             )}
           </button>
-          {/* Bell with notification dot */}
           <button
             onClick={() => {
               setHasNewCompletion(false);
