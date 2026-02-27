@@ -1,4 +1,4 @@
-import { Image, Sparkles } from "lucide-react";
+import { Image, Sparkles, Download } from "lucide-react";
 import { AdScript } from "./ScriptCard";
 
 interface VisualsPanelProps {
@@ -12,6 +12,19 @@ const SCENES = [
 ];
 
 export default function VisualsPanel({ script }: VisualsPanelProps) {
+  const handleDownloadStoryboard = () => {
+    const content = SCENES.map(({ key, label, timing }) =>
+      `${label} (${timing})\n${script[key]}\n`
+    ).join("\n");
+    const blob = new Blob([content], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "storyboard.txt";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="animate-fade-in-up">
       <div className="flex items-center justify-between mb-3">
@@ -21,7 +34,21 @@ export default function VisualsPanel({ script }: VisualsPanelProps) {
             Scene Storyboard
           </p>
         </div>
-        <span className="text-xs text-muted-foreground">3 scenes</span>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">3 scenes</span>
+          <button
+            onClick={handleDownloadStoryboard}
+            className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-display font-semibold transition-all duration-200 border"
+            style={{
+              background: "hsl(186 100% 50% / 0.08)",
+              borderColor: "hsl(186 100% 50% / 0.25)",
+              color: "hsl(var(--cyan))",
+            }}
+          >
+            <Download className="w-3 h-3" />
+            Download
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-3 gap-3 mb-4">

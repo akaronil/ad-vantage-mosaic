@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Mic, Download, Loader2 } from "lucide-react";
+import { Mic, Download, Loader2, FileDown } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
@@ -79,6 +79,24 @@ export default function AudioPanel() {
     a.click();
   };
 
+  const handleDownloadConfig = () => {
+    const voice = VOICES.find((v) => v.value === selectedVoice);
+    const config = {
+      voice: voice?.label ?? "Unknown",
+      voiceId: selectedVoice,
+      settings,
+      enabled: voiceoverEnabled,
+      generatedAudioUrl: audioUrl,
+    };
+    const blob = new Blob([JSON.stringify(config, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "audio-config.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const SliderRow = ({
     label,
     value,
@@ -117,6 +135,18 @@ export default function AudioPanel() {
             Audio Configuration
           </p>
         </div>
+        <button
+          onClick={handleDownloadConfig}
+          className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-display font-semibold transition-all duration-200 border"
+          style={{
+            background: "hsl(186 100% 50% / 0.08)",
+            borderColor: "hsl(186 100% 50% / 0.25)",
+            color: "hsl(var(--cyan))",
+          }}
+        >
+          <FileDown className="w-3 h-3" />
+          Download
+        </button>
       </div>
 
       <div
