@@ -13,6 +13,51 @@ import NavSheets from "@/components/NavSheets";
 import { MOCK_CAMPAIGNS, findBestCampaign } from "@/data/mockCampaigns";
 import { Zap, History, Settings, Bell, Download, Loader2, Sun, Moon } from "lucide-react";
 
+const MOCK_LIBRARY = [
+  {
+    id: "hair-serum-001",
+    visualStyle: "Realistic",
+    productName: "FollicleGrow Serum",
+    audience: "Men 25-35",
+    tone: "Professional",
+    duration: "15s",
+    videoUrl: "https://drive.google.com/uc?export=download&id=1TUzaAwaeP0NFYXTIN3hdbXNsWTM8al4H",
+    script: {
+      hook: "Stop thinning before it starts.",
+      body: "Our organic serum revitalizes dormant follicles in just 30 days.",
+      cta: "Get 20% off your first bottle today.",
+    },
+  },
+  {
+    id: "luxury-watch-002",
+    visualStyle: "Cinematic",
+    productName: "Aethelgard Chrono",
+    audience: "Luxury Enthusiasts",
+    tone: "Sophisticated",
+    duration: "15s",
+    videoUrl: "https://drive.google.com/uc?export=download&id=1mlX-OGeu-mytttxf-H5Uk7T9WDzJlzWI",
+    script: {
+      hook: "Time is the ultimate luxury.",
+      body: "Crafted with sustainable gold and timeless precision.",
+      cta: "Discover the collection.",
+    },
+  },
+  {
+    id: "tech-app-003",
+    visualStyle: "3D Render",
+    productName: "FocusFlow AI",
+    audience: "Remote Workers",
+    tone: "Futuristic",
+    duration: "15s",
+    videoUrl: "https://drive.google.com/uc?export=download&id=1CKO9QGBMUD_LFUA3ghRwPgLXPJ7_imRp",
+    script: {
+      hook: "Master your deep work.",
+      body: "The only productivity app that learns your biological rhythm.",
+      cta: "Download for free on iOS.",
+    },
+  },
+];
+
 const INITIAL_STEPS: Step[] = [
   { id: 1, label: "Brief Analysis", description: "Extract intent, audience & key messages", status: "pending" },
   { id: 2, label: "Scripting", description: "Generate voiceover script & scene cues", status: "pending" },
@@ -31,6 +76,7 @@ export default function Index() {
   const [extractedInfo, setExtractedInfo] = useState<ExtractedInfo | null>(null);
   const [adScript, setAdScript] = useState<AdScript | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [isDownloading, setIsDownloading] = useState(false);
   const [hasNewCompletion, setHasNewCompletion] = useState(false);
   const [theme, setTheme] = useState<"dark" | "light">(() => {
@@ -98,7 +144,7 @@ export default function Index() {
     setActiveStep(0);
   };
 
-  const handleGenerate = async (brief: string, _advancedSettings: AdvancedSettings) => {
+  const handleGenerate = async (brief: string, advancedSettings: AdvancedSettings) => {
     // Clear all previous state immediately
     cancelRef.current = true;
     await new Promise((r) => setTimeout(r, 50)); // let any running loop exit
@@ -108,14 +154,38 @@ export default function Index() {
     setIsGenerating(true);
     setExtractedInfo(null);
     setAdScript(null);
+    setVideoUrl(null);
     setSteps(INITIAL_STEPS);
     setActiveStep(1);
 
     const sid = crypto.randomUUID();
     setSessionId(sid);
 
-    const campaign = findBestCampaign(brief);
-    simulatePipeline(campaign);
+    // Match by visualStyle from MOCK_LIBRARY, fall back to keyword match
+    const libraryMatch = MOCK_LIBRARY.find(
+      (m) => m.visualStyle.toLowerCase() === advancedSettings.visualStyle.toLowerCase()
+    );
+
+    if (libraryMatch) {
+      const campaign = {
+        id: libraryMatch.id,
+        keywords: [],
+        info: {
+          productName: libraryMatch.productName,
+          audience: libraryMatch.audience,
+          tone: libraryMatch.tone,
+          duration: libraryMatch.duration,
+        },
+        script: libraryMatch.script,
+        videoUrl: libraryMatch.videoUrl,
+      };
+      setVideoUrl(libraryMatch.videoUrl);
+      simulatePipeline(campaign);
+    } else {
+      const campaign = findBestCampaign(brief);
+      setVideoUrl(campaign.videoUrl);
+      simulatePipeline(campaign);
+    }
   };
 
   // --- PDF & Download (kept local, no Supabase) ---
@@ -361,7 +431,7 @@ export default function Index() {
         {/* Right — Video Preview + Script */}
         <section className="flex-1 p-6 overflow-y-auto scrollbar-hide flex flex-col gap-6">
           <div className="flex-1" style={{ minHeight: "360px" }}>
-            <VideoPreview isGenerating={isGenerating} isComplete={isComplete} activeStep={activeStep} />
+            <VideoPreview isGenerating={isGenerating} isComplete={isComplete} activeStep={activeStep} videoUrl={videoUrl} />
           </div>
           {adScript && (
             <div className="animate-fade-in-up">

@@ -6,18 +6,17 @@ interface VideoPreviewProps {
   isGenerating: boolean;
   isComplete: boolean;
   activeStep: number;
+  videoUrl?: string | null;
 }
 
 const stepLabels = ["Brief Analysis", "Scripting", "Visuals", "Audio", "Final Export"];
 
-const SAMPLE_VIDEO_URL =
-  "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4";
-
-export default function VideoPreview({ isGenerating, isComplete, activeStep }: VideoPreviewProps) {
+export default function VideoPreview({ isGenerating, isComplete, activeStep, videoUrl }: VideoPreviewProps) {
   const [progress, setProgress] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number | null>(null);
   const startRef = useRef<number | null>(null);
 
@@ -46,9 +45,9 @@ export default function VideoPreview({ isGenerating, isComplete, activeStep }: V
     };
   }, [isGenerating, isComplete]);
 
-  // Auto-play video when complete
+  // Auto-play video when complete and videoUrl is available
   useEffect(() => {
-    if (isComplete && videoRef.current) {
+    if (isComplete && videoRef.current && videoUrl) {
       videoRef.current.currentTime = 0;
       videoRef.current.play().catch(() => {});
       setIsPlaying(true);
@@ -56,7 +55,14 @@ export default function VideoPreview({ isGenerating, isComplete, activeStep }: V
     if (!isComplete) {
       setIsPlaying(false);
     }
-  }, [isComplete]);
+  }, [isComplete, videoUrl]);
+
+  // Reload video when videoUrl changes
+  useEffect(() => {
+    if (videoRef.current && videoUrl) {
+      videoRef.current.load();
+    }
+  }, [videoUrl]);
 
   const togglePlayback = () => {
     if (!videoRef.current) return;
@@ -69,21 +75,32 @@ export default function VideoPreview({ isGenerating, isComplete, activeStep }: V
     }
   };
 
-  const toggleMute = () => {
+  const toggleMute = (e: React.MouseEvent) => {
+    e.stopPropagation();
     if (!videoRef.current) return;
     videoRef.current.muted = !videoRef.current.muted;
     setIsMuted(videoRef.current.muted);
   };
 
-  const toggleFullscreen = () => {
-    const container = videoRef.current?.parentElement;
-    if (!container) return;
+  const toggleFullscreen = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!containerRef.current) return;
     if (document.fullscreenElement) {
       document.exitFullscreen();
     } else {
-      container.requestFullscreen?.();
+      containerRef.current.requestFullscreen?.();
     }
   };
+
+  const handleDownload = () => {
+    if (!videoUrl) return;
+    const a = document.createElement("a");
+    a.href = videoUrl;
+    a.download = "ad-video.mp4";
+    a.click();
+  };
+
+  const resolvedVideoUrl = videoUrl || "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4";
 
   return (
     <div className="flex flex-col h-full gap-4">
@@ -96,6 +113,7 @@ export default function VideoPreview({ isGenerating, isComplete, activeStep }: V
           </h2>
         </div>
         <button
+          onClick={handleDownload}
           disabled={!isComplete}
           className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-display font-semibold transition-all duration-300 disabled:opacity-30 disabled:cursor-not-allowed"
           style={
@@ -119,28 +137,34 @@ export default function VideoPreview({ isGenerating, isComplete, activeStep }: V
 
       {/* Video Preview Area */}
       <div
+        ref={containerRef}
         className="flex-1 relative rounded-2xl overflow-hidden border border-border bg-card"
         style={{ minHeight: "300px", boxShadow: "var(--shadow-elevated)" }}
       >
-        {/* Thumbnail — hide when complete (video takes over) */}
-        {!isComplete && (
+        {/* Video element — always present, hidden behind thumbnail when not complete */}
+        <video
+          ref={videoRef}
+          src={resolvedVideoUrl}
+          className="absolute inset-0 w-full h-full object-cover"
+          style={{
+            opacity: isComplete ? 1 : 0.3,
+            filter: isGenerating ? "blur(8px) brightness(0.4)" : "none",
+            transition: "opacity 0.5s, filter 0.5s",
+          }}
+          loop
+          muted
+          playsInline
+          // @ts-ignore — webkit vendor attribute
+          webkit-playsinline=""
+        />
+
+        {/* Thumbnail — show when idle (not generating, not complete) */}
+        {!isGenerating && !isComplete && (
           <img
             src={videoPreviewImg}
             alt="Video preview"
             className="absolute inset-0 w-full h-full object-cover transition-opacity duration-500"
-            style={{ opacity: isGenerating ? 0.3 : 0.5 }}
-          />
-        )}
-
-        {/* Sample stock video — shown when complete */}
-        {isComplete && (
-          <video
-            ref={videoRef}
-            src={SAMPLE_VIDEO_URL}
-            className="absolute inset-0 w-full h-full object-cover animate-fade-in-up"
-            loop
-            muted
-            playsInline
+            style={{ opacity: 0.5 }}
           />
         )}
 
@@ -154,7 +178,7 @@ export default function VideoPreview({ isGenerating, isComplete, activeStep }: V
           }}
         />
 
-        {/* Scan line + status when generating */}
+        {/* Mock Rendering overlay when generating */}
         {isGenerating && (
           <>
             <div className="scan-line" />
@@ -167,10 +191,9 @@ export default function VideoPreview({ isGenerating, isComplete, activeStep }: V
                   color: "hsl(var(--cyan))",
                 }}
               >
-                Processing: {stepLabels[activeStep - 1] || "…"}
+                Mock Rendering: {stepLabels[activeStep - 1] || "…"}
               </div>
               <p className="text-xs text-muted-foreground">AI is crafting your video ad</p>
-              {/* Percentage */}
               <span className="text-lg font-display font-bold text-cyan tabular-nums">
                 {Math.round(progress * 100)}%
               </span>
@@ -255,7 +278,7 @@ export default function VideoPreview({ isGenerating, isComplete, activeStep }: V
           </div>
         </div>
 
-        {/* Progress bar — smooth 10s animation */}
+        {/* Progress bar */}
         {isGenerating && (
           <div
             className="absolute bottom-0 left-0 right-0 h-1 z-20"
