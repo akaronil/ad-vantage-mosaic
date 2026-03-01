@@ -264,6 +264,20 @@ export default function Index() {
       scenesFolder?.file("scene-2-body.txt", `Scene 2 — Body (3–12s)\n\n${adScript.body}`);
       scenesFolder?.file("scene-3-cta.txt", `Scene 3 — CTA (12–15s)\n\n${adScript.cta}`);
 
+      // Fetch mock video asset into ZIP
+      if (videoUrl) {
+        try {
+          const videoResp = await fetch(videoUrl);
+          if (videoResp.ok) {
+            const videoBlob = await videoResp.blob();
+            zip.file("ad-video.mp4", videoBlob);
+          }
+        } catch {
+          // Video fetch failed (CORS etc.) — add a reference instead
+          zip.file("ad-video-url.txt", `Video URL: ${videoUrl}\n\nDownload manually if the file is not included.`);
+        }
+      }
+
       const blob = await zip.generateAsync({ type: "blob" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
