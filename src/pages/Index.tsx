@@ -177,9 +177,10 @@ export default function Index() {
     setSessionId(sid);
     setLastAspectRatio(advancedSettings.aspectRatio);
 
-    // Match by visualStyle from MOCK_LIBRARY, fall back to keyword match
+    // Normalize visualStyle for matching (e.g. "3d_render" → "3d render", "cinematic" → "cinematic")
+    const normalizeStyle = (s: string) => s.toLowerCase().replace(/_/g, " ");
     const libraryMatch = MOCK_LIBRARY.find(
-      (m) => m.visualStyle.toLowerCase() === advancedSettings.visualStyle.toLowerCase()
+      (m) => normalizeStyle(m.visualStyle) === normalizeStyle(advancedSettings.visualStyle)
     );
 
     if (libraryMatch) {
@@ -207,47 +208,86 @@ export default function Index() {
   // --- PDF & Download (kept local, no Supabase) ---
   const generateScriptPdf = (script: AdScript, info: ExtractedInfo | null): Blob => {
     const doc = new jsPDF();
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(20);
-    doc.text("AdVantage Studio — Script", 20, 25);
+    const pageW = doc.internal.pageSize.getWidth();
 
+    // Brand header bar
+    doc.setFillColor(0, 190, 210); // cyan brand
+    doc.rect(0, 0, pageW, 38, "F");
+
+    // Logo text
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(22);
+    doc.setTextColor(255, 255, 255);
+    doc.text("AdVantage Studio", 20, 20);
     doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
-    doc.setTextColor(120);
-    doc.text(`Generated: ${new Date().toLocaleString()}`, 20, 33);
+    doc.setTextColor(220, 250, 255);
+    doc.text("AI Video Ad Script", 20, 28);
 
+    // Timestamp
+    doc.setFontSize(9);
+    doc.setTextColor(255, 255, 255);
+    doc.text(`Generated: ${new Date().toLocaleString()}`, pageW - 20, 28, { align: "right" });
+
+    let y = 50;
+
+    // Campaign info card
     if (info) {
-      doc.setTextColor(0);
-      doc.setFontSize(11);
+      doc.setDrawColor(0, 190, 210);
+      doc.setLineWidth(0.5);
+      doc.roundedRect(16, y - 4, pageW - 32, 40, 3, 3, "S");
+
       doc.setFont("helvetica", "bold");
-      doc.text("Campaign Info", 20, 48);
+      doc.setFontSize(11);
+      doc.setTextColor(0, 170, 190);
+      doc.text("CAMPAIGN INFO", 22, y + 4);
+
       doc.setFont("helvetica", "normal");
       doc.setFontSize(10);
-      doc.text(`Product: ${info.productName}`, 20, 56);
-      doc.text(`Audience: ${info.audience}`, 20, 63);
-      doc.text(`Tone: ${info.tone}`, 20, 70);
-      doc.text(`Duration: ${info.duration}`, 20, 77);
+      doc.setTextColor(60, 60, 60);
+      doc.text(`Product: ${info.productName}`, 22, y + 13);
+      doc.text(`Audience: ${info.audience}`, 22, y + 20);
+      doc.text(`Tone: ${info.tone}`, 110, y + 13);
+      doc.text(`Duration: ${info.duration}`, 110, y + 20);
+      y += 48;
     }
 
-    let y = info ? 92 : 48;
+    // Script sections
     const sections = [
-      { title: "HOOK (0–3s)", text: script.hook },
-      { title: "BODY (3–12s)", text: script.body },
-      { title: "CTA (12–15s)", text: script.cta },
+      { title: "HOOK", timing: "0–3s", text: script.hook },
+      { title: "BODY", timing: "3–12s", text: script.body },
+      { title: "CTA", timing: "12–15s", text: script.cta },
     ];
+
     for (const section of sections) {
+      // Section accent bar
+      doc.setFillColor(0, 190, 210);
+      doc.rect(16, y, 3, 14, "F");
+
       doc.setFont("helvetica", "bold");
       doc.setFontSize(12);
-      doc.setTextColor(0, 150, 170);
-      doc.text(section.title, 20, y);
-      y += 8;
+      doc.setTextColor(0, 170, 190);
+      doc.text(`${section.title}`, 24, y + 6);
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(10);
-      doc.setTextColor(40);
-      const lines = doc.splitTextToSize(section.text, 170);
-      doc.text(lines, 20, y);
-      y += lines.length * 5 + 12;
+      doc.setFontSize(9);
+      doc.setTextColor(140, 140, 140);
+      doc.text(`(${section.timing})`, 24, y + 12);
+
+      y += 18;
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(11);
+      doc.setTextColor(40, 40, 40);
+      const lines = doc.splitTextToSize(section.text, pageW - 48);
+      doc.text(lines, 24, y);
+      y += lines.length * 6 + 14;
     }
+
+    // Footer
+    doc.setDrawColor(220, 220, 220);
+    doc.line(20, 275, pageW - 20, 275);
+    doc.setFontSize(8);
+    doc.setTextColor(160, 160, 160);
+    doc.text("AdVantage Studio — AI-Powered Video Ad Generation", pageW / 2, 282, { align: "center" });
 
     return doc.output("blob");
   };
@@ -431,7 +471,7 @@ export default function Index() {
               color: "hsl(var(--primary-foreground))",
             }}
           >
-            AJ
+            G
           </button>
         </div>
       </header>
@@ -464,7 +504,7 @@ export default function Index() {
         {/* Right — Video Preview + Script */}
         <section className="flex-1 p-6 overflow-y-auto scrollbar-hide flex flex-col gap-6">
           <div className="flex-1" style={{ minHeight: "360px" }}>
-            <VideoPreview isGenerating={isGenerating} isComplete={isComplete} activeStep={activeStep} videoUrl={videoUrl} />
+            <VideoPreview isGenerating={isGenerating} isComplete={isComplete} activeStep={activeStep} videoUrl={videoUrl} aspectRatio={lastAspectRatio} />
           </div>
           {adScript && (
             <div className="animate-fade-in-up">

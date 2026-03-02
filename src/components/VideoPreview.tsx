@@ -7,11 +7,18 @@ interface VideoPreviewProps {
   isComplete: boolean;
   activeStep: number;
   videoUrl?: string | null;
+  aspectRatio?: string;
 }
 
 const stepLabels = ["Brief Analysis", "Scripting", "Visuals", "Audio", "Final Export"];
 
-export default function VideoPreview({ isGenerating, isComplete, activeStep, videoUrl }: VideoPreviewProps) {
+const ASPECT_DIMENSIONS: Record<string, { ratio: string; maxW: string }> = {
+  "9:16": { ratio: "9/16", maxW: "320px" },
+  "16:9": { ratio: "16/9", maxW: "100%" },
+  "1:1": { ratio: "1/1", maxW: "480px" },
+};
+
+export default function VideoPreview({ isGenerating, isComplete, activeStep, videoUrl, aspectRatio = "16:9" }: VideoPreviewProps) {
   const [progress, setProgress] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
@@ -140,10 +147,13 @@ export default function VideoPreview({ isGenerating, isComplete, activeStep, vid
       </div>
 
       {/* Video Preview Area */}
+      {(() => {
+        const dims = ASPECT_DIMENSIONS[aspectRatio] || ASPECT_DIMENSIONS["16:9"];
+        return (
       <div
         ref={containerRef}
-        className="flex-1 relative rounded-2xl overflow-hidden border border-border bg-card"
-        style={{ minHeight: "300px", boxShadow: "var(--shadow-elevated)" }}
+        className="flex-1 relative rounded-2xl overflow-hidden border border-border bg-card mx-auto"
+        style={{ minHeight: "300px", boxShadow: "var(--shadow-elevated)", aspectRatio: dims.ratio, maxWidth: dims.maxW }}
         onMouseEnter={() => setIsHovering(true)}
         onMouseLeave={() => setIsHovering(false)}
       >
@@ -335,6 +345,8 @@ export default function VideoPreview({ isGenerating, isComplete, activeStep, vid
           </div>
         )}
       </div>
+        );
+      })()}
 
       {/* Meta info */}
       {isComplete && (
