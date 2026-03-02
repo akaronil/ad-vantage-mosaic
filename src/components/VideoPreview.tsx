@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Download, Play, Pause, Maximize2, Volume2, VolumeX } from "lucide-react";
+import { Download, Play, Pause, Maximize2, Volume2, VolumeX, ExternalLink } from "lucide-react";
 import videoPreviewImg from "@/assets/video-preview.jpg";
 
 interface VideoPreviewProps {
@@ -15,6 +15,8 @@ export default function VideoPreview({ isGenerating, isComplete, activeStep, vid
   const [progress, setProgress] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(true);
+  const [videoError, setVideoError] = useState(false);
+  const [isHovering, setIsHovering] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number | null>(null);
@@ -25,24 +27,19 @@ export default function VideoPreview({ isGenerating, isComplete, activeStep, vid
     if (isGenerating) {
       setProgress(0);
       startRef.current = null;
-
       const animate = (ts: number) => {
         if (!startRef.current) startRef.current = ts;
         const elapsed = ts - startRef.current;
         const pct = Math.min(elapsed / 10000, 1);
         setProgress(pct);
-        if (pct < 1) {
-          rafRef.current = requestAnimationFrame(animate);
-        }
+        if (pct < 1) rafRef.current = requestAnimationFrame(animate);
       };
       rafRef.current = requestAnimationFrame(animate);
     } else {
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       if (isComplete) setProgress(1);
     }
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
   }, [isGenerating, isComplete]);
 
   // Auto-play video when complete and videoUrl is available
@@ -52,20 +49,19 @@ export default function VideoPreview({ isGenerating, isComplete, activeStep, vid
       videoRef.current.play().catch(() => {});
       setIsPlaying(true);
     }
-    if (!isComplete) {
-      setIsPlaying(false);
-    }
+    if (!isComplete) setIsPlaying(false);
   }, [isComplete, videoUrl]);
 
   // Reload video when videoUrl changes
   useEffect(() => {
     if (videoRef.current && videoUrl) {
+      setVideoError(false);
       videoRef.current.load();
     }
   }, [videoUrl]);
 
   const togglePlayback = () => {
-    if (!videoRef.current) return;
+    if (!videoRef.current || videoError) return;
     if (videoRef.current.paused) {
       videoRef.current.play();
       setIsPlaying(true);
@@ -99,6 +95,14 @@ export default function VideoPreview({ isGenerating, isComplete, activeStep, vid
     a.download = "ad-video.mp4";
     a.click();
   };
+
+  const handleVideoError = () => {
+    setVideoError(true);
+    setIsPlaying(false);
+  };
+
+  const driveId = videoUrl?.match(/id=([^&]+)/)?.[1];
+  const driveLink = driveId ? `https://drive.google.com/file/d/${driveId}/view` : videoUrl;
 
   const resolvedVideoUrl = videoUrl || "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4";
 
@@ -140,14 +144,17 @@ export default function VideoPreview({ isGenerating, isComplete, activeStep, vid
         ref={containerRef}
         className="flex-1 relative rounded-2xl overflow-hidden border border-border bg-card"
         style={{ minHeight: "300px", boxShadow: "var(--shadow-elevated)" }}
+        onMouseEnter={() => setIsHovering(true)}
+        onMouseLeave={() => setIsHovering(false)}
       >
-        {/* Video element — always present, hidden behind thumbnail when not complete */}
+        {/* Video element */}
         <video
           ref={videoRef}
           src={resolvedVideoUrl}
+          crossOrigin="anonymous"
           className="absolute inset-0 w-full h-full object-cover"
           style={{
-            opacity: isComplete ? 1 : 0.3,
+            opacity: isComplete && !videoError ? 1 : 0.3,
             filter: isGenerating ? "blur(8px) brightness(0.4)" : "none",
             transition: "opacity 0.5s, filter 0.5s",
           }}
@@ -156,9 +163,36 @@ export default function VideoPreview({ isGenerating, isComplete, activeStep, vid
           playsInline
           // @ts-ignore — webkit vendor attribute
           webkit-playsinline=""
+          onError={handleVideoError}
         />
 
-        {/* Thumbnail — show when idle (not generating, not complete) */}
+        {/* Video error fallback */}
+        {videoError && isComplete && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 z-20">
+            <div className="text-center px-6">
+              <p className="text-sm font-display font-semibold text-foreground mb-1">Video failed to load</p>
+              <p className="text-xs text-muted-foreground mb-4">The source may be restricted or unavailable.</p>
+              {driveLink && (
+                <a
+                  href={driveLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-display font-semibold transition-all duration-300"
+                  style={{
+                    background: "linear-gradient(135deg, hsl(186 100% 45%), hsl(200 100% 50%))",
+                    color: "hsl(var(--primary-foreground))",
+                    boxShadow: "0 0 20px hsl(186 100% 50% / 0.3)",
+                  }}
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  Open in Drive
+                </a>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Thumbnail — show when idle */}
         {!isGenerating && !isComplete && (
           <img
             src={videoPreviewImg}
@@ -170,7 +204,7 @@ export default function VideoPreview({ isGenerating, isComplete, activeStep, vid
 
         {/* Overlay gradient */}
         <div
-          className="absolute inset-0"
+          className="absolute inset-0 pointer-events-none"
           style={{
             background: isComplete
               ? "linear-gradient(to top, hsl(222 25% 5% / 0.6) 0%, transparent 40%)"
@@ -214,7 +248,7 @@ export default function VideoPreview({ isGenerating, isComplete, activeStep, vid
         )}
 
         {/* Complete play/pause overlay */}
-        {isComplete && (
+        {isComplete && !videoError && (
           <div
             className="absolute inset-0 flex items-center justify-center group cursor-pointer"
             onClick={togglePlayback}
@@ -237,8 +271,11 @@ export default function VideoPreview({ isGenerating, isComplete, activeStep, vid
           </div>
         )}
 
-        {/* Controls bar */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 flex items-center justify-between z-10">
+        {/* Hover control bar */}
+        <div
+          className="absolute bottom-0 left-0 right-0 p-4 flex items-center justify-between z-10 transition-opacity duration-300"
+          style={{ opacity: isHovering || !isPlaying ? 1 : 0 }}
+        >
           <div className="flex items-center gap-2">
             {isComplete && (
               <div
@@ -260,6 +297,7 @@ export default function VideoPreview({ isGenerating, isComplete, activeStep, vid
             <button
               onClick={toggleMute}
               className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors hover:bg-secondary/50"
+              style={{ background: "hsl(var(--card) / 0.6)", backdropFilter: "blur(8px)" }}
               title={isMuted ? "Unmute" : "Mute"}
             >
               {isMuted ? (
@@ -271,6 +309,7 @@ export default function VideoPreview({ isGenerating, isComplete, activeStep, vid
             <button
               onClick={toggleFullscreen}
               className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors hover:bg-secondary/50"
+              style={{ background: "hsl(var(--card) / 0.6)", backdropFilter: "blur(8px)" }}
               title="Fullscreen"
             >
               <Maximize2 className="w-3.5 h-3.5 text-muted-foreground" />
