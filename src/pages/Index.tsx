@@ -145,6 +145,21 @@ export default function Index() {
   };
 
   const handleGenerate = async (brief: string, advancedSettings: AdvancedSettings) => {
+    // Daily usage limit (3/day)
+    const today = new Date().toISOString().slice(0, 10);
+    const lastReset = localStorage.getItem("advantage_last_reset");
+    let usageCount = parseInt(localStorage.getItem("advantage_usage_count") || "0", 10);
+    if (lastReset !== today) {
+      usageCount = 0;
+      localStorage.setItem("advantage_last_reset", today);
+      localStorage.setItem("advantage_usage_count", "0");
+    }
+    if (usageCount >= 3) {
+      toast.error("Daily limit reached (3/3). Try again tomorrow.");
+      return;
+    }
+    localStorage.setItem("advantage_usage_count", String(usageCount + 1));
+
     // Clear all previous state immediately
     cancelRef.current = true;
     await new Promise((r) => setTimeout(r, 50)); // let any running loop exit
@@ -160,6 +175,7 @@ export default function Index() {
 
     const sid = crypto.randomUUID();
     setSessionId(sid);
+    setLastAspectRatio(advancedSettings.aspectRatio);
 
     // Match by visualStyle from MOCK_LIBRARY, fall back to keyword match
     const libraryMatch = MOCK_LIBRARY.find(
@@ -236,6 +252,8 @@ export default function Index() {
     return doc.output("blob");
   };
 
+  const [lastAspectRatio, setLastAspectRatio] = useState("9:16 Vertical");
+
   const handleDownloadAll = async () => {
     if (!adScript || !sessionId) return;
     setIsDownloading(true);
@@ -282,7 +300,8 @@ export default function Index() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `advantage-${sessionId.slice(0, 8)}.zip`;
+      const ratioSlug = lastAspectRatio.replace(/[:\s]/g, "x").replace(/x+/g, "x").toLowerCase();
+      a.download = `advantage-${ratioSlug}-${sessionId.slice(0, 8)}.zip`;
       a.click();
       URL.revokeObjectURL(url);
       toast.success("Assets downloaded!");
