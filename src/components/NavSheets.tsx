@@ -189,11 +189,43 @@ export default function NavSheets({
             </SheetDescription>
           </SheetHeader>
           <div className="mt-6 space-y-4">
+            {/* Mock bar chart */}
+            <div className="p-4 rounded-xl border bg-secondary border-border">
+              <p className="text-xs text-muted-foreground mb-3">Ads Generated This Week</p>
+              <div className="flex items-end gap-2 h-24">
+                {[
+                  { day: "Mon", count: 1 },
+                  { day: "Tue", count: 0 },
+                  { day: "Wed", count: 2 },
+                  { day: "Thu", count: 3 },
+                  { day: "Fri", count: 1 },
+                  { day: "Sat", count: 0 },
+                  { day: "Sun", count: 0 },
+                ].map((d) => (
+                  <div key={d.day} className="flex-1 flex flex-col items-center gap-1">
+                    <div
+                      className="w-full rounded-t-md transition-all"
+                      style={{
+                        height: `${Math.max(d.count * 28, 4)}px`,
+                        background: d.count > 0
+                          ? "linear-gradient(to top, hsl(186 100% 45%), hsl(200 100% 55%))"
+                          : "hsl(var(--border))",
+                      }}
+                    />
+                    <span className="text-[10px] text-muted-foreground">{d.day}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 flex items-center justify-between">
+                <span className="text-xs text-muted-foreground">Total this week</span>
+                <span className="text-sm font-display font-bold text-cyan">7 ads</span>
+              </div>
+            </div>
             {[
-              { label: "Total generations", value: String(MOCK_CAMPAIGNS.length) },
-              { label: "Avg generation time", value: "~18s" },
-              { label: "Most used tone", value: "Cinematic" },
-              { label: "Preferred format", value: "30s Reel" },
+              { label: "Total generations", value: "3" },
+              { label: "Avg generation time", value: "~8s" },
+              { label: "Most used style", value: "Cinematic" },
+              { label: "Daily limit", value: `${parseInt(localStorage.getItem("advantage_usage_count") || "0")}/3` },
             ].map((item) => (
               <div
                 key={item.label}
@@ -229,18 +261,18 @@ export default function NavSheets({
                   color: "hsl(var(--primary-foreground))",
                 }}
               >
-                AJ
+                G
               </div>
               <div>
-                <p className="text-sm font-display font-semibold text-foreground">Alex Johnson</p>
-                <p className="text-xs text-muted-foreground">alex.johnson@university.edu</p>
+                <p className="text-sm font-display font-semibold text-foreground">Guest User</p>
+                <p className="text-xs text-muted-foreground">No account connected</p>
               </div>
             </div>
             {[
-              { label: "Plan", value: "Free Student Tier" },
-              { label: "Generations used", value: "12 / 50" },
-              { label: "Storage", value: "48 MB / 500 MB" },
-              { label: "Member since", value: "Feb 2026" },
+              { label: "Plan", value: "Free Guest Tier" },
+              { label: "Generations today", value: `${parseInt(localStorage.getItem("advantage_usage_count") || "0")}/3` },
+              { label: "Storage", value: "Local only" },
+              { label: "Session", value: "Temporary" },
             ].map((item) => (
               <div
                 key={item.label}
