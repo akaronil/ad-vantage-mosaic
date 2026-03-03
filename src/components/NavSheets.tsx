@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { History, Settings, BarChart3, RefreshCw, User, LogOut, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -23,7 +23,7 @@ interface NavSheetsProps {
   onAnalyticsChange: (open: boolean) => void;
   onProfileChange: (open: boolean) => void;
   onTemplatesChange: (open: boolean) => void;
-  onLoadSession?: (sessionId: string, extractedInfo: ExtractedInfo | null, adScript: AdScript | null) => void;
+  onLoadSession?: (sessionId: string, extractedInfo: ExtractedInfo | null, adScript: AdScript | null, videoUrl?: string) => void;
   onLoadTemplate?: (brief: string) => void;
 }
 
@@ -64,6 +64,18 @@ export default function NavSheets({
   onLoadSession,
   onLoadTemplate,
 }: NavSheetsProps) {
+  // Load saved history from localStorage
+  type HistoryEntry = { sessionId: string; extractedInfo: ExtractedInfo; adScript: AdScript; videoUrl?: string; createdAt: string };
+  const [savedHistory, setSavedHistory] = useState<HistoryEntry[]>([]);
+
+  useEffect(() => {
+    if (historyOpen) {
+      try {
+        const raw = localStorage.getItem("advantage_history");
+        if (raw) setSavedHistory(JSON.parse(raw));
+      } catch { setSavedHistory([]); }
+    }
+  }, [historyOpen]);
 
   return (
     <>
@@ -79,10 +91,44 @@ export default function NavSheets({
             </SheetDescription>
           </SheetHeader>
           <div className="mt-4 space-y-2 overflow-y-auto max-h-[calc(100vh-140px)] scrollbar-hide">
+            {/* User-generated history */}
+            {savedHistory.length > 0 && (
+              <>
+                <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold mb-1">Your Generations</p>
+                {savedHistory.map((h) => (
+                  <button
+                    key={h.sessionId}
+                    onClick={() => onLoadSession?.(h.sessionId, h.extractedInfo, h.adScript, h.videoUrl)}
+                    className="w-full text-left p-3 rounded-xl border transition-all duration-200 hover:border-cyan/30 bg-secondary border-border"
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm font-display font-semibold text-foreground">
+                        {h.extractedInfo?.productName || "Untitled"}
+                      </span>
+                      <span
+                        className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
+                        style={{ background: "hsl(186 100% 50% / 0.15)", color: "hsl(var(--cyan))" }}
+                      >
+                        saved
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {h.extractedInfo?.audience || "—"} · {h.extractedInfo?.duration || "—"}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      {new Date(h.createdAt).toLocaleDateString()} {new Date(h.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                    </p>
+                  </button>
+                ))}
+                <div className="border-t border-border my-2" />
+              </>
+            )}
+            {/* Mock campaigns fallback */}
+            <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold mb-1">Sample Campaigns</p>
             {MOCK_CAMPAIGNS.map((c) => (
               <button
                 key={c.id}
-                onClick={() => onLoadSession?.(c.id, c.info, c.script)}
+                onClick={() => onLoadSession?.(c.id, c.info, c.script, c.videoUrl)}
                 className="w-full text-left p-3 rounded-xl border transition-all duration-200 hover:border-cyan/30 bg-secondary border-border"
               >
                 <div className="flex items-center justify-between mb-1">
@@ -91,10 +137,7 @@ export default function NavSheets({
                   </span>
                   <span
                     className="text-[10px] px-1.5 py-0.5 rounded-full font-medium"
-                    style={{
-                      background: "hsl(150 60% 40% / 0.15)",
-                      color: "hsl(150 60% 60%)",
-                    }}
+                    style={{ background: "hsl(150 60% 40% / 0.15)", color: "hsl(150 60% 60%)" }}
                   >
                     ready
                   </span>

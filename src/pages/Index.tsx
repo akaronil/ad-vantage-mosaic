@@ -116,7 +116,20 @@ export default function Index() {
     );
   };
 
-  const simulatePipeline = async (campaign: typeof MOCK_CAMPAIGNS[0]) => {
+  const saveToHistory = (sid: string, info: ExtractedInfo, script: AdScript, vUrl?: string) => {
+    try {
+      const raw = localStorage.getItem("advantage_history");
+      const history: Array<{ sessionId: string; extractedInfo: ExtractedInfo; adScript: AdScript; videoUrl?: string; createdAt: string }> = raw ? JSON.parse(raw) : [];
+      // Avoid duplicates
+      if (history.some((h) => h.sessionId === sid)) return;
+      history.unshift({ sessionId: sid, extractedInfo: info, adScript: script, videoUrl: vUrl, createdAt: new Date().toISOString() });
+      // Keep last 20
+      if (history.length > 20) history.length = 20;
+      localStorage.setItem("advantage_history", JSON.stringify(history));
+    } catch { /* storage full or parse error */ }
+  };
+
+  const simulatePipeline = async (campaign: typeof MOCK_CAMPAIGNS[0], sid: string) => {
     for (let i = 0; i < 5; i++) {
       if (cancelRef.current) return;
 
@@ -142,6 +155,9 @@ export default function Index() {
     setIsComplete(true);
     setHasNewCompletion(true);
     setActiveStep(0);
+
+    // Auto-save to history
+    saveToHistory(sid, campaign.info, campaign.script, campaign.videoUrl);
   };
 
   const handleGenerate = async (brief: string, advancedSettings: AdvancedSettings) => {
@@ -197,11 +213,11 @@ export default function Index() {
         videoUrl: libraryMatch.videoUrl,
       };
       setVideoUrl(libraryMatch.videoUrl);
-      simulatePipeline(campaign);
+      simulatePipeline(campaign, sid);
     } else {
       const campaign = findBestCampaign(brief);
       setVideoUrl(campaign.videoUrl);
-      simulatePipeline(campaign);
+      simulatePipeline(campaign, sid);
     }
   };
 
@@ -352,11 +368,12 @@ export default function Index() {
     }
   };
 
-  const handleLoadSession = (sid: string, info: ExtractedInfo | null, script: AdScript | null) => {
+  const handleLoadSession = (sid: string, info: ExtractedInfo | null, script: AdScript | null, vUrl?: string) => {
     setHistoryOpen(false);
     setSessionId(sid);
     setExtractedInfo(info);
     setAdScript(script);
+    if (vUrl) setVideoUrl(vUrl);
     setIsComplete(true);
     setIsGenerating(false);
     setSteps(INITIAL_STEPS.map((s) => ({ ...s, status: "complete" as const })));
